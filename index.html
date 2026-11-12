@@ -129,14 +129,8 @@
       <svg class="car" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5.5l4 4l4-4"/></svg>
     </button>
     <div id="ctlList">
-      <div class="rw"><span class="plate">Scroll ↕</span><span class="plate thin">Change track</span></div>
       <div class="rw"><span class="plate">Space</span><span class="plate thin">Play / pause</span></div>
-      <div class="rw"><span class="plate">← →</span><span class="plate thin">Seek 10 s</span></div>
-      <div class="rw"><span class="plate">S</span><span class="plate thin">Shuffle</span></div>
-      <div class="rw"><span class="plate">F</span><span class="plate thin">Fullscreen</span></div>
-      <button class="rw" id="syncBtn" type="button"><span class="plate">V</span><span class="plate thin">Sync visuals to video</span></button>
-      <button class="rw" id="liveBtn" type="button"><span class="plate">L</span><span class="plate thin lab">Live input: off</span></button>
-      <div class="rw"><span class="plate">Drop</span><span class="plate thin">Load your own audio files</span></div>
+      <div class="rw"><span class="plate">↑ ↓</span><span class="plate thin">Change track</span></div>
     </div>
   </div>
 </header>
@@ -161,7 +155,7 @@ const $ = s => document.querySelector(s);
 
 /* ================= setlist ================= */
 // official uploads on the band's YouTube channel (embedded, never downloaded)
-const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'kmZAsLMUuPw', '9HdqMAXQtBo', 'HKm6GkXOHCc', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
+const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'psbZrdUNkAQ', '9HdqMAXQtBo', 'HKm6GkXOHCc', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
 const QS = new URLSearchParams(location.search), HAS_TAP = !!document.documentElement.dataset.ratmTap;
 // audio tap (optional local extension in ./extension): the embed posts its own spectrum/waveform, so no tab sharing
 const tap = { f: null, t: null, at: -1e9, sr: 0 };
@@ -170,7 +164,8 @@ addEventListener('message', e => { if (!/^https:\/\/www\.youtube(-nocookie)?\.co
 const tapLive = () => performance.now() - tap.at < 400;
 // per-video picture correction: 4:3 club footage needs more zoom (no side bars) and a harder grade than the HD promos
 const VID_FX = {
-  kmZAsLMUuPw: { zoom: 1.52 },
+  MUaL1FnotRQ: { zoom: 1.52 },
+  psbZrdUNkAQ: { zoom: 1.52, filter: 'grayscale(1) brightness(1.9) contrast(1.5)' },
   '9HdqMAXQtBo': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   HKm6GkXOHCc: { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   '0MLTwf5lKd8': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
@@ -178,7 +173,7 @@ const VID_FX = {
 const ARTIST = 'Rage Against the Machine';
 const TRACKS = [
   ['Bombtrack', 'Self-titled', 1992], ['Killing in the Name', 'Self-titled', 1992],
-  ['Bullet in the Head', 'Self-titled', 1992], ['Know Your Enemy', 'Self-titled', 1992],
+  ['Vietnow', 'Evil Empire', 1996], ['Know Your Enemy', 'Self-titled', 1992],
   ['Calm Like a Bomb', 'The Battle of Los Angeles', 1999], ['Freedom', 'Self-titled', 1992],
   ['People of the Sun', 'Evil Empire', 1996], ['Bulls on Parade', 'Evil Empire', 1996],
   ['Testify', 'The Battle of Los Angeles', 1999], ['Guerrilla Radio', 'The Battle of Los Angeles', 1999],
@@ -496,8 +491,12 @@ float fieldB(vec2 uv, float lay){
 // video window: a zone hugging the wave (inside the ring) that opens with loudness, plus the shrapnel
 float fieldV(vec2 uv, float lay){
   vec2 q = sd(uv,lay);
-  float win = lay>.5&&lay<1.5 ? smoothstep(.03,-.02,q.y)+exp(-max(q.y,0.)*3.2)*.5 : exp(-abs(q.y)*2.3);
-  return clamp(win*(.66+1.4*uRms+.4*uLow)+fieldB(uv,lay)*.6,0.,1.);
+  bool ring = lay>.5&&lay<1.5;
+  float win = ring ? smoothstep(.03,-.02,q.y)+exp(-max(q.y,0.)*3.6)*.5 : exp(-abs(q.y)*3.1);
+  float v = win*(.64+1.2*uRms+.35*uLow)+fieldB(uv,lay)*.55;
+  // away from the wave the holes never merge: the picture stays a screen of dots, so the print keeps its share
+  float cap = ring ? mix(1.,.82,smoothstep(-.01,.05,q.y)) : mix(1.,.8,smoothstep(.06,.26,abs(q.y)));
+  return clamp(min(v,cap),0.,1.);
 }
 // one instrument's slice of the spectrum, spread across the whole wave: each gets its own plate
 float fieldBand(vec2 uv, float lay, float f0, float f1){
@@ -537,6 +536,7 @@ vec4 scene(vec2 uv, vec3 paper, vec3 ink, vec3 hot, vec3 core, vec4 mode){
   float hi = halftone(px-mis*1.2, mode.z+1.31, cell*.72, shape, lay, 4);
   c = mix(c, core, hi*rough*(1.-.5*uVid));
   float al = 1.-uVid*halftone(px-mis*.6, mode.z+.52, cell*1.9, shape>.5&&shape<1.5 ? 0. : shape, lay, 2);   // holes through to the video
+  al = mix(al, 1., clamp(bs*.5+b*.8+hi*.5,0.,1.)*.42);                                                       // …but the instrument plates print over it
   vec2 q = sd(uv,lay); float amp = .30+.12*uShock;
   float w2 = wave(q.x*.8+.012+uShock*.03)*amp*1.18;
   float ghost = step(min(0.,w2)-.005,q.y)*step(q.y,max(0.,w2)+.005);
@@ -725,7 +725,7 @@ function setPlaying(on) { playing = on; if (on) { clearTimeout(dockT); dockT = s
 // Live input: visualise whatever is playing elsewhere (a Spotify / Apple Music / YouTube tab, or the mic).
 let live = false, liveStream = null, liveNode = null;
 async function goLive() {
-  const label = $('#liveBtn .lab');
+  const label = $('#liveBtn .lab') || {};
   if (live) { liveStream?.getTracks().forEach(t => t.stop()); liveNode?.disconnect(); live = false; master.gain.value = 1; label.textContent = 'Live input: off'; load(); return; }
   if (!started) power(true);
   let stream = null;
@@ -739,7 +739,7 @@ async function goLive() {
   live = true; usingSynth = false; setPlaying(true); $('#src').textContent = 'Live input'; label.textContent = 'Live input: on';
   stream.getAudioTracks()[0].addEventListener('ended', () => { if (live) goLive(); });
 }
-$('#liveBtn').addEventListener('click', () => goLive());
+$('#liveBtn')?.addEventListener('click', () => goLive());
 function toggle() {
   if (live) return;
   if (!started) return power();
@@ -805,7 +805,6 @@ addEventListener('drop', e => {
   };
   btn.addEventListener('click', () => setOpen(btn.getAttribute('aria-expanded') !== 'true'));
   addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
-  $('#syncBtn').addEventListener('click', () => { if (!started) power(); else ensureCap(); });
 }
 
 /* ================= boot ================= */
