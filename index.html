@@ -7,6 +7,12 @@
 <script type="importmap">{ "imports": { "animejs": "./vendor/anime.esm.min.js" } }</script>
 <style>
   @font-face { font-family: "Redaction"; src: url(fonts/Redaction-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 10"; src: url(fonts/Redaction10-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 20"; src: url(fonts/Redaction20-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 35"; src: url(fonts/Redaction35-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 50"; src: url(fonts/Redaction50-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 70"; src: url(fonts/Redaction70-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "Redaction 100"; src: url(fonts/Redaction100-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
   @font-face { font-family: "DM Mono"; src: url(fonts/dm-mono-latin-400-normal.woff2) format("woff2"); font-weight: 400; font-display: block; }
   @font-face { font-family: "DM Mono"; src: url(fonts/dm-mono-latin-500-normal.woff2) format("woff2"); font-weight: 500; font-display: block; }
   :root {
@@ -107,7 +113,7 @@
 <div id="meta"><span class="plate" id="mNo">01</span><span class="plate thin" id="mAlbum"></span></div>
 <div id="read">
   <span class="plate thin">Low <b id="rL">00</b></span><span class="plate thin">Mid <b id="rM">00</b></span><span class="plate thin">High <b id="rH">00</b></span>
-  <span class="plate" id="bpm">— BPM</span><span class="lamp" id="lamp"></span>
+  <span class="plate hot" id="sec">Quiet</span><span class="plate" id="bpm">— BPM</span><span class="lamp" id="lamp"></span>
 </div>
 <div id="bar" title="Seek"><i></i></div>
 <div id="gate"><span class="plate"><span class="sq"></span>Click to power on — and turn it up</span></div>
@@ -123,6 +129,12 @@ const $ = s => document.querySelector(s);
 /* ================= setlist ================= */
 // official uploads on the band's YouTube channel (embedded, never downloaded)
 const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'rMjjsjNBS_4', '9HdqMAXQtBo', '4lzqUe1Qfec', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
+const QS = new URLSearchParams(location.search), HAS_TAP = !!document.documentElement.dataset.ratmTap;
+// audio tap (optional local extension in ./extension): the embed posts its own spectrum/waveform, so no tab sharing
+const tap = { f: null, t: null, at: -1e9, sr: 0 };
+addEventListener('message', e => { if (!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(e.origin) || !e.data || !e.data.ratmTap) return;
+  tap.f = e.data.f; tap.t = e.data.t; tap.sr = e.data.sr; tap.at = performance.now(); });
+const tapLive = () => performance.now() - tap.at < 400;
 const ARTIST = 'Rage Against the Machine';
 const TRACKS = [
   ['Bombtrack', 'Self-titled', 1992], ['Killing in the Name', 'Self-titled', 1992],
@@ -131,7 +143,7 @@ const TRACKS = [
   ['People of the Sun', 'Evil Empire', 1996], ['Bulls on Parade', 'Evil Empire', 1996],
   ['Testify', 'The Battle of Los Angeles', 1999], ['Guerrilla Radio', 'The Battle of Los Angeles', 1999],
   ['Sleep Now in the Fire', 'The Battle of Los Angeles', 1999], ['Renegades of Funk', 'Renegades', 2000],
-].map(([title, album, year], i) => ({ title, album, year, url: null, yt: YT_IDS[i] }));
+].map(([title, album, year], i) => ({ title, album, year, url: null, yt: QS.has('synth') ? null : YT_IDS[i] }));
 
 // paper, ink, hot, core — screen-print inks, not screen glow
 const PALS = [
@@ -187,7 +199,7 @@ function cdTo(i, turns = 0) {
   $('#cdText').textContent = line.repeat(Math.max(1, Math.round(58 / line.length)));
 }
 function shuffle() {
-  if (!started) { power(true); if (TRACKS.some(t => t.yt && !t.url)) ensureCap(); }
+  if (!started) { power(true); if (!HAS_TAP && TRACKS.some(t => t.yt && !t.url)) ensureCap(); }
   let i = cur; while (TRACKS.length > 1 && i === cur) i = Math.floor(Math.random() * TRACKS.length);
   cdTurns = 2; go(i, 1);
 }
@@ -298,7 +310,8 @@ function onset(d, e, t) {
 }
 const kicks = []; let bpmShown = 0;
 function analyse(t) {
-  analyser.getByteFrequencyData(freq); analyser.getByteTimeDomainData(timeD);
+  if (kind === 'yt' && !live && tapLive() && tap.f.length === freq.length) { freq.set(tap.f); timeD.set(tap.t); }
+  else { analyser.getByteFrequencyData(freq); analyser.getByteTimeDomainData(timeD); }
   for (let b = 0; b < NB; b++) {
     let m = 0; for (let i = bandLo[b]; i <= bandHi[b]; i++) if (freq[i] > m) m = freq[i];
     specRow[b] = Math.min(255, m * (.85 + b / NB * .7));      // tilt: lift the quiet top end
@@ -312,12 +325,55 @@ function analyse(t) {
   lev.rms += (Math.sqrt(sq / 512) - lev.rms) * .3;
   const k = onset(det.kick, avg(2, 18), t), s = onset(det.snare, avg(76, 116), t);
   if (k) hitKick(k, t); if (s && !k) hitSnare(s);
+  structure(t);
 }
 
 /* ================= anime.js-driven impact state ================= */
 const fx = { shock: 0 }, tear = { v: 0, seed: 0 }, wipe = { v: 1, dir: 1 };
 const shakeEl = $('#shake'), lamp = $('#lamp');
+/* ---- song structure: where are we relative to this track's own loudest passages? ---- */
+const sec = { fast: 0, peak: .45, lo: 0, I: 0, state: 'quiet', since: 0, t0: -1, inv: { v: 0 }, kickAt: 0, grade: 0 };
+function structure(t) {
+  if (sec.t0 < 0) sec.t0 = t;
+  const e = lev.rms * 1.7 + lev.low * .45 + lev.mid * .35;
+  sec.fast += (e - sec.fast) * .012;
+  // running ceiling and floor of this track's loudness (~40 s memory); intensity = where we sit between them
+  sec.peak = Math.max(sec.peak * .9996, sec.fast, .45);
+  sec.lo = t - sec.t0 < 3 ? sec.fast : Math.min(sec.lo + (sec.peak - sec.lo) * .0004, sec.fast);
+  const range = sec.peak - sec.lo;
+  const I = range > sec.peak * .1 ? Math.min(1, Math.max(0, (sec.fast - sec.lo) / range)) : .6;   // no contrast heard yet → neutral
+  sec.I += (I - sec.I) * .08;
+  let s = sec.state;
+  if (t - sec.since > 6) {                 // a section must hold for 6 s before the poster may flip again
+    if (s !== 'full') s = sec.I > .8 && t - sec.t0 > 6 ? 'full' : sec.I < .3 ? 'quiet' : 'build';
+    else if (sec.I < .4) s = 'build';
+  }
+  if (s !== sec.state) { const was = sec.state; sec.state = s; if (s === 'full' || was === 'full') sec.since = t; setSection(s, was); }
+}
+function setSection(s, was) {
+  $('#sec').textContent = s;
+  if (REDUCED) return;
+  if (s === 'full') {            // the drop: inks swap, the whole poster flips
+    animate(fx, { shock: [1, 0], duration: 800, ease: 'outExpo' });
+    animate(sec.inv, { v: 1, duration: 520, ease: 'outQuart' }); applyVars(true);
+  } else if (was === 'full') { animate(sec.inv, { v: 0, duration: 800, ease: 'inOutQuart' }); applyVars(false); }
+}
+function resetStructure() { Object.assign(sec, { fast: 0, peak: .45, lo: 0, I: 0, state: 'quiet', since: 0, t0: -1 }); utils.remove(sec.inv); sec.inv.v = 0; $('#sec').textContent = 'quiet'; }
+let curP = null;
+function applyVars(inv) { if (!curP) return; const rs = document.documentElement.style, P = inv ? [curP[1], curP[0], curP[2], curP[3]] : curP;
+  ['--paper', '--ink', '--hot', '--core'].forEach((v, k) => rs.setProperty(v, P[k])); }
+// the title degrades through the Redaction grades as the track gets heavier, and jumps a grade on every kick
+const GRADES = ['Redaction', 'Redaction 10', 'Redaction 20', 'Redaction 35', 'Redaction 50', 'Redaction 70', 'Redaction 100'];
+let gradeBase = 0, gradeEl = null;
+function setGrade() {
+  const want = playing ? sec.I * 5 : 0; if (Math.abs(want - gradeBase) > .65) gradeBase = Math.round(want);
+  const g = Math.min(6, gradeBase + (performance.now() < sec.kickAt ? 1 : 0)), h = items[cur]?.querySelector('h2');
+  if (gradeEl && gradeEl !== h) { gradeEl.style.fontFamily = ''; gradeEl = null; sec.grade = 0; }
+  if (h && (g !== sec.grade || gradeEl !== h)) { h.style.fontFamily = g ? `"${GRADES[g]}", var(--font)` : ''; gradeEl = h; sec.grade = g; }
+}
+
 function hitKick(str, t) {
+  sec.kickAt = performance.now() + 110;
   animate(fx, { shock: [str, 0], duration: 460, ease: 'outExpo' });
   animate(lamp, { opacity: [1, .15], duration: 260, ease: 'outQuad' });
   if (!REDUCED) {
@@ -338,7 +394,7 @@ const cv = $('#gl'), gl = cv.getContext('webgl2', { antialias: false, alpha: tru
 const FS = `#version 300 es
 precision highp float;
 uniform vec2 uRes; uniform float uTime, uHead, uLow, uMid, uHigh, uRms, uShock, uTear, uSeed, uWipe, uDir;
-uniform float uVid; uniform sampler2D uWave, uSpec; uniform vec3 uPal[8]; uniform vec4 uMode[2];
+uniform float uVid, uInt, uInv; uniform sampler2D uWave, uSpec; uniform vec3 uPal[8]; uniform vec4 uMode[2];
 out vec4 o;
 const float PI = 3.14159265;
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
@@ -388,20 +444,24 @@ float halftone(vec2 px, float ang, float cell, float shape, float lay, int which
 }
 vec4 scene(vec2 uv, vec3 paper, vec3 ink, vec3 hot, vec3 core, vec4 mode){
   vec2 px = uv*uRes; float lay = mode.x, shape = mode.y, cell = mode.w*uRes.y/900.;
+  { vec2 f = fract(px/(uRes.y/34.))-.5; float m = step(length(f)*1.4143, uInv*1.25)*step(.001,uInv);   // drop: inks swap, dot by dot
+    vec3 t = paper; paper = mix(paper,ink,m); ink = mix(ink,t,m); }
   float rough = .88+.12*hash(floor(px/2.));                  // uneven ink lay-down
   vec3 c = paper*(.97+.03*vnoise(px*.35));
   vec2 mis = uShock*vec2(.016,.009)*uRes.y;                   // plates knocked out of register on the kick
   float a = halftone(px+mis, mode.z+1.05, cell*1.7, mod(shape+1.,3.), lay, 0);
-  c = mix(c, hot, a*rough*(1.-.4*uVid));
+  c = mix(c, hot, a*rough*(1.-.4*uVid)*mix(.2,1.,smoothstep(.05,.6,uInt)));
+  float a3 = halftone(px-mis*1.4, mode.z+2.1, cell*2.4, shape, lay, 0)*smoothstep(.62,.95,uInt);   // third plate only when the band is all in
+  c = mix(c, core, a3*rough*.85*(1.-.5*uVid));
   float b = halftone(px, mode.z, cell, shape, lay, 1);
   c = mix(c, ink, b*rough*(1.-.55*uVid));
   float al = 1.-uVid*halftone(px-mis*.6, mode.z+.52, cell*1.9, shape>.5&&shape<1.5 ? 0. : shape, lay, 2);   // holes through to the video
   vec2 q = sd(uv,lay); float amp = .30+.12*uShock;
   float w2 = wave(q.x*.8+.012+uShock*.03)*amp*1.18;
   float ghost = step(min(0.,w2)-.005,q.y)*step(q.y,max(0.,w2)+.005);
-  float gm = ghost*rough*smoothstep(.004,.02,abs(w2)); c = mix(c, hot, gm); al = mix(al,1.,gm);
+  float gm = ghost*rough*smoothstep(.004,.02,abs(w2))*smoothstep(.25,.7,uInt); c = mix(c, hot, gm); al = mix(al,1.,gm);
   float w = wave(q.x*.8)*amp;
-  float fill = step(min(0.,w),q.y)*step(q.y,max(0.,w));
+  float fill = step(min(0.,w),q.y)*step(q.y,max(0.,w))*smoothstep(.1,.45,uInt);   // quiet passages: outline only
   c = mix(c, mix(core,hot,smoothstep(.15,1.,abs(q.y)/max(abs(w),.002))), fill); al = mix(al,1.,fill);
   float e = fwidth(q.y)*1.5;
   float ln = max(smoothstep(.004+e,.004,abs(q.y-w)), smoothstep(.0016+e,.0016,abs(q.y))*.9);
@@ -441,7 +501,7 @@ function tex(unit, w, h, wrapT) { const t = gl.createTexture(); gl.activeTexture
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapT); return t; }
 tex(0, 1024, 1, gl.CLAMP_TO_EDGE); tex(1, NB, HIST, gl.REPEAT);
 gl.uniform1i(U('uWave'), 0); gl.uniform1i(U('uSpec'), 1);
-let head = 0, vidV = 0;
+let head = 0, vidV = 0, intU = 1;
 const pal = new Float32Array(24), mode = new Float32Array(8);
 function resize() { const d = Math.min(devicePixelRatio || 1, 1.5); cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); gl.viewport(0, 0, cv.width, cv.height); }
 addEventListener('resize', () => { resize(); placeReel(false); });
@@ -455,6 +515,7 @@ function frame(now) {
   gl.activeTexture(gl.TEXTURE1); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, head, NB, 1, gl.RED, gl.UNSIGNED_BYTE, specRow);
   gl.uniform2f(U('uRes'), cv.width, cv.height); gl.uniform1f(U('uTime'), now / 1000); gl.uniform1f(U('uHead'), (head + .5) / HIST);
   gl.uniform1f(U('uLow'), Math.min(1, lev.low)); gl.uniform1f(U('uMid'), lev.mid); gl.uniform1f(U('uHigh'), lev.high); gl.uniform1f(U('uRms'), lev.rms);
+  intU += ((playing ? sec.I : 1) - intU) * .1; gl.uniform1f(U('uInt'), intU); gl.uniform1f(U('uInv'), sec.inv.v); setGrade();
   gl.uniform1f(U('uShock'), fx.shock); gl.uniform1f(U('uTear'), tear.v); gl.uniform1f(U('uSeed'), tear.seed);
   vidV += ((kind === 'yt' && !live ? 1 : 0) - vidV) * .06; gl.uniform1f(U('uVid'), vidV);
   gl.uniform1f(U('uWipe'), wipe.v); gl.uniform1f(U('uDir'), wipe.dir);
@@ -509,7 +570,7 @@ function go(i, dir = 1, first = false) {
   if (first) { pal.copyWithin(0, 12, 24); mode.copyWithin(0, 4, 8); }
   else { wipe.dir = dir; animate(wipe, { v: [0, 1], duration: REDUCED ? 1 : 950, ease: 'inOutQuart' }); }
   const rs = document.documentElement.style;
-  setTimeout(() => ['--paper', '--ink', '--hot', '--core'].forEach((v, k) => rs.setProperty(v, P[k])), first ? 0 : 380);
+  resetStructure(); curP = P; setTimeout(() => applyVars(false), first ? 0 : 380);
   const byLum = [...P].sort((a, b) => lum(a) - lum(b)); rs.setProperty('--vdark', byLum[0]); rs.setProperty('--vlight', byLum[3]);
   // type
   browse(); placeReel(!first);
@@ -521,7 +582,7 @@ function go(i, dir = 1, first = false) {
   clearTimeout(loadT); if (started) loadT = setTimeout(load, first ? 0 : 320);   // debounce fast scrolling
 }
 
-const srcLabel = () => live ? 'Live input' : kind === 'synth' ? 'No file — test signal' : kind === 'file' ? 'File' : cap ? 'YouTube' : 'YouTube — press V to sync visuals';
+const srcLabel = () => live ? 'Live input' : kind === 'synth' ? 'No file — test signal' : kind === 'file' ? 'File' : cap || HAS_TAP || tapLive() ? 'YouTube' : 'YouTube — press V to sync visuals';
 function load() {
   if (live) return;
   const t = TRACKS[cur]; synth.stop(); el.pause(); ytPause();
@@ -594,7 +655,7 @@ function toggle() {
 function power(skipLoad) {
   if (started) return; started = true; initAudio(); ctx.resume();
   animate('#gate', { opacity: 0, x: -30, duration: 400, ease: 'inQuad', onComplete: () => $('#gate').remove() });
-  if (skipLoad !== true) { if (TRACKS.some(t => t.yt && !t.url)) ensureCap(); load(); }
+  if (skipLoad !== true) { if (!HAS_TAP && TRACKS.some(t => t.yt && !t.url)) ensureCap(); load(); }
 }
 el.addEventListener('ended', () => go(cur + 1, 1));
 el.addEventListener('error', () => { if (el.src && kind === 'file' && started) { TRACKS[cur].url = null; load(); } });
@@ -642,8 +703,9 @@ addEventListener('drop', e => {
 try { const r = await fetch('./api/tracks'); if (r.ok) (await r.json()).forEach(f => assign(f, './tracks/' + encodeURIComponent(f))); } catch {}
 buildReel(); resize(); go(0, 1, true);
 document.fonts?.ready.then(() => placeReel(false));
+GRADES.forEach(g => document.fonts?.load(`700 40px "${g}"`));
 createTimer({ frameRate: 60, onUpdate: () => frame(performance.now()) });
-window.__viz = { go, power, toggle, lev, get kind() { return kind; }, get cap() { return !!cap; }, get yt() { return ytP; }, get cur() { return cur; } };
+window.__viz = { sec, tap, HAS_TAP, go, power, toggle, lev, get kind() { return kind; }, get cap() { return !!cap; }, get yt() { return ytP; }, get cur() { return cur; } };
 </script>
 </body>
 </html>

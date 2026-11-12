@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "RATM Visualiser audio tap",
+  "version": "1.0.0",
+  "description": "Lets the RATM Visualiser page on localhost read the sound levels of its own embedded YouTube player, so no screen-share prompt is needed. Does nothing on any other site.",
+  "content_scripts": [
+    { "matches": ["http://localhost/*"], "js": ["mark.js"], "run_at": "document_start" },
+    { "matches": ["https://www.youtube.com/embed/*", "https://www.youtube-nocookie.com/embed/*"], "js": ["tap.js"], "all_frames": true, "run_at": "document_idle" }
+  ]
+}
