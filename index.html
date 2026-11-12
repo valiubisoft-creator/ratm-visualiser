@@ -165,7 +165,7 @@ const tapLive = () => performance.now() - tap.at < 400;
 // per-video picture correction: 4:3 club footage needs more zoom (no side bars) and a harder grade than the HD promos
 const VID_FX = {
   MUaL1FnotRQ: { zoom: 1.52 },
-  psbZrdUNkAQ: { zoom: 1.52, filter: 'grayscale(1) brightness(1.9) contrast(1.5)' },
+  psbZrdUNkAQ: { zoom: 1.52, thin: 1, filter: 'grayscale(1) brightness(2.3) contrast(1.35)' },
   '9HdqMAXQtBo': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   HKm6GkXOHCc: { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   '0MLTwf5lKd8': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
@@ -456,7 +456,7 @@ const cv = $('#gl'), gl = cv.getContext('webgl2', { antialias: false, alpha: tru
 const FS = `#version 300 es
 precision highp float;
 uniform vec2 uRes; uniform float uTime, uHead, uLow, uMid, uHigh, uRms, uShock, uTear, uSeed, uWipe, uDir;
-uniform float uVid, uInt, uInv; uniform sampler2D uWave, uSpec; uniform vec3 uPal[8]; uniform vec4 uMode[2];
+uniform float uVid, uInt, uInv, uThin; uniform sampler2D uWave, uSpec; uniform vec3 uPal[8]; uniform vec4 uMode[2];
 out vec4 o;
 const float PI = 3.14159265;
 float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
@@ -537,6 +537,7 @@ vec4 scene(vec2 uv, vec3 paper, vec3 ink, vec3 hot, vec3 core, vec4 mode){
   c = mix(c, core, hi*rough*(1.-.5*uVid));
   float al = 1.-uVid*halftone(px-mis*.6, mode.z+.52, cell*1.9, shape>.5&&shape<1.5 ? 0. : shape, lay, 2);   // holes through to the video
   al = mix(al, 1., clamp(bs*.5+b*.8+hi*.5,0.,1.)*.42);                                                       // …but the instrument plates print over it
+  al *= 1.-.62*uThin*uVid;                                                                                   // per-video: thin the whole print so dark footage reads
   vec2 q = sd(uv,lay); float amp = .30+.12*uShock;
   float w2 = wave(q.x*.8+.012+uShock*.03)*amp*1.18;
   float ghost = step(min(0.,w2)-.005,q.y)*step(q.y,max(0.,w2)+.005);
@@ -582,7 +583,7 @@ function tex(unit, w, h, wrapT) { const t = gl.createTexture(); gl.activeTexture
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapT); return t; }
 tex(0, 1024, 1, gl.CLAMP_TO_EDGE); tex(1, NB, HIST, gl.REPEAT);
 gl.uniform1i(U('uWave'), 0); gl.uniform1i(U('uSpec'), 1);
-let head = 0, vidV = 0, intU = 1;
+let head = 0, thinV = 0, vidV = 0, intU = 1;
 const pal = new Float32Array(24), mode = new Float32Array(8);
 function resize() { const d = Math.min(devicePixelRatio || 1, 1.5); cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); gl.viewport(0, 0, cv.width, cv.height); }
 addEventListener('resize', () => { resize(); placeReel(false); });
@@ -599,6 +600,7 @@ function frame(now) {
   intU += ((playing ? sec.I : 1) - intU) * .1; gl.uniform1f(U('uInt'), intU); gl.uniform1f(U('uInv'), sec.inv.v); setGrade();
   gl.uniform1f(U('uShock'), fx.shock); gl.uniform1f(U('uTear'), tear.v); gl.uniform1f(U('uSeed'), tear.seed);
   vidV += ((kind === 'yt' && !live ? 1 : 0) - vidV) * .06; gl.uniform1f(U('uVid'), vidV);
+  thinV += ((kind === 'yt' && !live ? (VID_FX[TRACKS[cur].yt] || {}).thin || 0 : 0) - thinV) * .06; gl.uniform1f(U('uThin'), thinV);
   gl.uniform1f(U('uWipe'), wipe.v); gl.uniform1f(U('uDir'), wipe.dir);
   gl.uniform3fv(U('uPal'), pal); gl.uniform4fv(U('uMode'), mode);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
