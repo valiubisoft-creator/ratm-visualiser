@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RATM Visualiser</title>
+<script type="importmap">{ "imports": { "animejs": "./vendor/anime.esm.min.js" } }</script>
+<style>
+  @font-face { font-family: "Redaction"; src: url(fonts/Redaction-Bold.otf) format("opentype"); font-weight: 700; font-display: block; }
+  @font-face { font-family: "DM Mono"; src: url(fonts/dm-mono-latin-400-normal.woff2) format("woff2"); font-weight: 400; font-display: block; }
+  @font-face { font-family: "DM Mono"; src: url(fonts/dm-mono-latin-500-normal.woff2) format("woff2"); font-weight: 500; font-display: block; }
+  :root {
+    --paper: #0C0B0A; --ink: #EDE6D6; --hot: #E4200C; --core: #FFC914;
+    --font: "Redaction", "Times New Roman", serif;
+    --mono: "DM Mono", ui-monospace, Menlo, monospace;
+    --pad: clamp(14px, 2.2vw, 34px);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--paper); color: var(--ink); font-family: var(--font);
+               -webkit-font-smoothing: antialiased; overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  #shake { position: fixed; inset: -18px; z-index: 1; }
+  /* the video lives BEHIND the print: the shader punches halftone holes through to it */
+  #vid { position: fixed; inset: 0; z-index: 0; overflow: hidden; isolation: isolate; background: #000; opacity: 0; transition: opacity .7s; }
+  body.video #vid { opacity: 1; }
+  #vid iframe { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.78vh); height: max(100vh, 56.25vw); transform: translate(-50%, -50%) scale(1.14);
+                filter: grayscale(1) contrast(1.25) brightness(1.35); pointer-events: none; border: 0; }
+  #vid i { position: absolute; inset: 0; transition: background-color .6s; }
+  #vid .mul { background: var(--vlight, #EDE6D6); mix-blend-mode: multiply; }      /* lights → lightest ink */
+  #vid .lit { background: var(--vdark, #0C0B0A); mix-blend-mode: lighten; }        /* darks → darkest ink */
+  canvas { width: 100%; height: 100%; display: block; }
+
+  /* ---- label plates: small type always sits on a strip of ink, like tape on a poster ---- */
+  .plate { display: inline-block; background: var(--ink); color: var(--paper); padding: 4px 7px 3px; font-family: var(--mono); font-size: 11px; line-height: 1.2;
+           font-weight: 500; letter-spacing: .04em; text-transform: uppercase; font-variant-numeric: tabular-nums; white-space: nowrap;
+           transition: background-color .5s, color .5s; }
+  .plate.thin { font-weight: 400; }
+  .plate.hot { background: var(--hot); color: var(--paper); }
+
+  header { position: fixed; top: var(--pad); left: var(--pad); right: var(--pad); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; z-index: 5; pointer-events: none; }
+  header .l, header .r { display: flex; gap: 3px; flex-wrap: wrap; }
+  header .r { justify-content: flex-end; }
+
+  /* ---- the reel: one enormous setlist, the current title centred ---- */
+  #wrap { position: fixed; inset: 0; transform-origin: var(--pad) 50%; z-index: 3; pointer-events: none; }
+  #reel { list-style: none; padding: 0 var(--pad); position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+  #reel li { padding: 1.1vw 0; max-width: 92vw; transition: opacity .45s; }
+  #reel h2 { font-size: clamp(44px, 11.2vw, 230px); line-height: .92; letter-spacing: -.03em; font-weight: 700; text-transform: uppercase; }
+  #reel .t { color: transparent; -webkit-text-stroke: 1.5px var(--ink); transition: background-color .35s, color .35s; -webkit-box-decoration-break: clone; box-decoration-break: clone; padding: 0 .06em 0 .02em; }
+  #reel li:not(.cur) { opacity: .42; }
+  #reel li.cur .t { color: var(--ink); -webkit-text-stroke: 0; }
+  body.docked #reel li:not(.cur) { opacity: 0; }
+  body.docked #reel li.cur .t { background: var(--ink); color: var(--paper); }
+  #reel .punch { display: inline-block; transform-origin: 0 60%; }
+
+  #meta { position: fixed; left: var(--pad); bottom: calc(var(--pad) + 14px); z-index: 5; display: flex; gap: 3px; flex-wrap: wrap; pointer-events: none; }
+  #read { position: fixed; right: var(--pad); bottom: calc(var(--pad) + 14px); z-index: 5; display: flex; gap: 3px; align-items: flex-end; pointer-events: none; }
+  #read .lamp { width: 22px; height: 22px; background: var(--hot); opacity: .15; }
+
+  /* ---- the disc: drag to turn, click a segment to pick, centre to shuffle ---- */
+  #cdWrap { --d: clamp(150px, 17vw, 250px); position: fixed; right: calc(var(--pad) - 8px); top: 50%; width: var(--d); height: var(--d); margin-top: calc(var(--d) / -2); z-index: 6; touch-action: none; }
+  #cd { width: 100%; height: 100%; display: block; overflow: visible; cursor: grab; }
+  #cd.drag { cursor: grabbing; }
+  #cd * { transition: fill .5s, stroke .5s, opacity .25s; }
+  #cd .disc { fill: var(--ink); }
+  #cd .groove { fill: none; stroke: var(--paper); stroke-width: .5; opacity: .4; }
+  #cd .seg { fill: var(--paper); opacity: .13; cursor: pointer; }
+  #cd .seg:hover { opacity: .45; }
+  #cd .seg.cur { fill: var(--hot); opacity: 1; }
+  #cd text { font: 500 7.5px var(--mono); fill: var(--paper); letter-spacing: .06em; pointer-events: none; text-anchor: middle; dominant-baseline: central; }
+  #cd .label { fill: var(--paper); }
+  #cd .lring { fill: none; stroke: var(--ink); stroke-width: .6; }
+  #cd .ltext { fill: var(--ink); font-size: 6.4px; text-anchor: start; letter-spacing: 0; }
+  #cd .sheen { fill: var(--paper); opacity: .14; pointer-events: none; }
+  #cd .hub { fill: var(--ink); cursor: pointer; }
+  #cdHub:hover .hub, #cdHub:focus-visible .hub { fill: var(--hot); }
+  #cdHub { outline: none; }
+  #cd .shuf { fill: none; stroke: var(--paper); stroke-width: 1.7; stroke-linecap: square; pointer-events: none; }
+  #cd .ptr { fill: var(--hot); stroke: var(--paper); stroke-width: 1.2; }
+
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 18px; z-index: 6; cursor: pointer; }
+  #bar i { position: absolute; left: 0; bottom: 0; height: 5px; width: 100%; background: var(--ink); transform-origin: 0 50%; transform: scaleX(0); transition: background-color .5s; }
+  #bar:hover i { height: 10px; }
+
+  #gate { position: fixed; left: var(--pad); bottom: 22vh; z-index: 7; pointer-events: none; }
+  #gate .plate { font-size: 13px; padding: 7px 10px 6px; }
+  #gate .sq { display: inline-block; width: 9px; height: 9px; background: var(--paper); margin-right: 8px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { to { opacity: 0; } }
+  #drop { position: fixed; inset: 0; z-index: 20; background: var(--hot); color: var(--paper); display: none; align-items: center; padding: var(--pad);
+          font-size: 22vw; font-weight: 700; letter-spacing: -.06em; line-height: .85; text-transform: uppercase; }
+  body.dragging #drop { display: flex; }
+  @media (max-width: 700px) { #cdWrap { --d: 120px; } header .hint { display: none; } }
+</style>
+</head>
+<body>
+<div id="vid"><div id="yt"></div><i class="mul"></i><i class="lit"></i></div>
+<div id="shake"><canvas id="gl"></canvas></div>
+
+<div id="wrap"><ol id="reel"></ol></div>
+
+<header>
+  <div class="l"><span class="plate">RATM Visualiser</span><span class="plate thin hint">Scroll ↕ track · Space play · ← → seek · S shuffle · V sync video</span><button class="plate hot" id="liveBtn" style="all:unset;pointer-events:auto;cursor:pointer" type="button"><span class="plate hot">L — Live input: off</span></button></div>
+  <div class="r"><span class="plate hot" id="src">Standby</span><span class="plate" id="time">00:00</span></div>
+</header>
+
+<div id="cdWrap"></div>
+
+<div id="meta"><span class="plate" id="mNo">01</span><span class="plate thin" id="mAlbum"></span></div>
+<div id="read">
+  <span class="plate thin">Low <b id="rL">00</b></span><span class="plate thin">Mid <b id="rM">00</b></span><span class="plate thin">High <b id="rH">00</b></span>
+  <span class="plate" id="bpm">— BPM</span><span class="lamp" id="lamp"></span>
+</div>
+<div id="bar" title="Seek"><i></i></div>
+<div id="gate"><span class="plate"><span class="sq"></span>Click to power on — and turn it up</span></div>
+<div id="drop">Drop<br>it.</div>
+<audio id="el" preload="auto"></audio>
+
+<script type="module">
+import { animate, createTimer, stagger, splitText, scrambleText, utils } from 'animejs';
+
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = s => document.querySelector(s);
+
+/* ================= setlist ================= */
+// official uploads on the band's YouTube channel (embedded, never downloaded)
+const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'rMjjsjNBS_4', '9HdqMAXQtBo', '4lzqUe1Qfec', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
+const ARTIST = 'Rage Against the Machine';
+const TRACKS = [
+  ['Bombtrack', 'Self-titled', 1992], ['Killing in the Name', 'Self-titled', 1992],
+  ['Take the Power Back', 'Self-titled', 1992], ['Know Your Enemy', 'Self-titled', 1992],
+  ['Wake Up', 'Self-titled', 1992], ['Freedom', 'Self-titled', 1992],
+  ['People of the Sun', 'Evil Empire', 1996], ['Bulls on Parade', 'Evil Empire', 1996],
+  ['Testify', 'The Battle of Los Angeles', 1999], ['Guerrilla Radio', 'The Battle of Los Angeles', 1999],
+  ['Sleep Now in the Fire', 'The Battle of Los Angeles', 1999], ['Renegades of Funk', 'Renegades', 2000],
+].map(([title, album, year], i) => ({ title, album, year, url: null, yt: YT_IDS[i] }));
+
+// paper, ink, hot, core — screen-print inks, not screen glow
+const PALS = [
+  ['#0C0B0A', '#EDE6D6', '#E4200C', '#FFC914'],
+  ['#E4200C', '#0C0B0A', '#EDE6D6', '#FFC914'],
+  ['#EDE6D6', '#0C0B0A', '#E4200C', '#FFC914'],
+  ['#F2C200', '#0C0B0A', '#E4200C', '#EDE6D6'],
+  ['#13203B', '#EDE6D6', '#FF4A1C', '#F2C200'],
+  ['#2B3020', '#EDE6D6', '#E4200C', '#F2C200'],
+];
+// layout (0 horizon, 1 ring, 2 column), screen shape (0 dot, 1 line, 2 square), screen angle, cell px @900p
+const MODES = [[0, 0, .26, 10], [1, 1, .79, 9], [0, 2, .52, 12], [2, 0, 1.05, 9], [1, 0, .26, 11], [0, 1, 1.31, 8], [2, 2, .79, 12], [1, 2, .4, 10]];
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+const lum = h => { const [r, g, b] = hex(h); return .299 * r + .587 * g + .114 * b; };
+const norm = s => s.toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]/g, '');
+
+function assign(name, url) {
+  const n = norm(name);
+  const hit = TRACKS.find(t => !t.url && n.includes(norm(t.title)));
+  if (hit) { hit.url = url; return; }
+  const clean = name.replace(/\.[a-z0-9]+$/i, '').replace(/^[\d\s.\-_]+/, '').replace(/[_]+/g, ' ').trim() || name;
+  TRACKS.push({ title: clean, album: 'Your file', year: '', url });
+}
+
+/* ================= DOM: reel + rail ================= */
+const reel = $('#reel'), cdWrap = $('#cdWrap'), wrap = $('#wrap');
+let items = [], splits = [];
+const cdR = { r: 180 }; let cdStep = 30, cdAnim, cdTurns = 0, cdSpin = 0, cdDisc, cdLabel;
+function buildCD() {
+  const N = TRACKS.length; cdStep = 360 / N; const gap = Math.min(1.2, cdStep * .08);
+  const pt = (r, a) => { a = a * Math.PI / 180; return `${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`; };
+  const wedge = (r0, r1, a0, a1) => `M${pt(r0, a0)}L${pt(r1, a0)}A${r1} ${r1} 0 0 1 ${pt(r1, a1)}L${pt(r0, a1)}A${r0} ${r0} 0 0 0 ${pt(r0, a0)}Z`;
+  const segs = TRACKS.map((t, i) => { const a = i * cdStep;
+    return `<path class="seg" data-i="${i}" d="${wedge(70, 106, a - cdStep / 2 + gap, a + cdStep / 2 - gap)}"><title>${t.title.replace(/[<&]/g, '')}</title></path>` +
+      (N <= 24 ? `<text transform="rotate(${a}) translate(88 0) rotate(180)">${String(i + 1).padStart(2, '0')}</text>` : ''); }).join('');
+  cdWrap.innerHTML = `<svg id="cd" viewBox="-124 -124 248 248" aria-label="Track disc. Drag to turn, click a segment to pick a track, press the centre to shuffle.">
+    <g id="cdDisc"><circle class="disc" r="118"/><circle class="groove" r="114"/><circle class="groove" r="110.5"/><circle class="groove" r="66.5"/>${segs}</g>
+    <g id="cdLabel"><circle class="label" r="63"/><circle class="lring" r="58"/><circle class="lring" r="28"/>
+      <defs><path id="cdArc" d="M-41 0A41 41 0 1 1 41 0A41 41 0 1 1 -41 0"/></defs>
+      <text class="ltext"><textPath href="#cdArc" id="cdText" textLength="252" lengthAdjust="spacing"></textPath></text></g>
+    <path class="sheen" d="${wedge(24, 118, -64, -40)}"/><path class="sheen" d="${wedge(24, 118, 116, 140)}"/>
+    <g id="cdHub" role="button" tabindex="0" aria-label="Shuffle"><circle class="hub" r="22"/><path class="shuf" d="M-10 -5h4l9 10h6M-10 5h4l2.5 -2.8M1.5 -2.2l1.5 -2.8h6M6 -8l3 3l-3 3M6 2l3 3l-3 3"/></g>
+    <path class="ptr" d="M-124 -7L-109 0L-124 7Z"/></svg>`;
+  cdDisc = $('#cdDisc'); cdLabel = $('#cdLabel');
+  const hub = $('#cdHub'); hub.addEventListener('click', e => { e.stopPropagation(); shuffle(); });
+  hub.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); shuffle(); } });
+}
+function cdTo(i, turns = 0) {
+  let t = 180 - i * cdStep; t += 360 * Math.round((cdR.r - t) / 360); t -= 360 * turns;
+  cdAnim?.pause(); cdAnim = animate(cdR, { r: t, duration: REDUCED ? 1 : turns ? 1700 : 900, ease: turns ? 'outQuart' : 'outExpo' });
+  cdWrap.querySelectorAll('.seg').forEach((sg, k) => sg.classList.toggle('cur', k === i));
+  const T = TRACKS[i], line = `${T.title} — ${[T.album, T.year].filter(Boolean).join(' ')} · `.toUpperCase();
+  $('#cdText').textContent = line.repeat(Math.max(1, Math.round(58 / line.length)));
+}
+function shuffle() {
+  if (!started) { power(true); if (TRACKS.some(t => t.yt && !t.url)) ensureCap(); }
+  let i = cur; while (TRACKS.length > 1 && i === cur) i = Math.floor(Math.random() * TRACKS.length);
+  cdTurns = 2; go(i, 1);
+}
+// drag the disc like a jog wheel; release snaps to the nearest track under the pointer mark
+let dg = null;
+cdWrap.addEventListener('pointerdown', e => {
+  if (e.target.closest('#cdHub')) return;
+  const b = cdWrap.getBoundingClientRect(), cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  const ang = ev => Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+  cdAnim?.pause(); dg = { last: ang(e), ang, acc: 0, seg: e.target.closest('.seg') };
+  cdWrap.setPointerCapture(e.pointerId); $('#cd').classList.add('drag');
+});
+cdWrap.addEventListener('pointermove', e => {
+  if (!dg) return; const a = dg.ang(e); const d = ((a - dg.last + 540) % 360) - 180; dg.last = a; dg.acc += d; cdR.r += d;
+});
+const cdRelease = () => {
+  if (!dg) return; const g = dg; dg = null; $('#cd')?.classList.remove('drag');
+  const N = TRACKS.length; let i;
+  if (Math.abs(g.acc) < 4) { if (!g.seg) return cdTo(cur); i = +g.seg.dataset.i; }
+  else i = ((Math.round((180 - cdR.r) / cdStep) % N) + N) % N;
+  if (i === cur) cdTo(cur); else go(i, g.acc < 0 || (Math.abs(g.acc) < 4 && i > cur) ? 1 : -1);
+};
+cdWrap.addEventListener('pointerup', cdRelease); cdWrap.addEventListener('pointercancel', cdRelease);
+
+function buildReel() {
+  reel.innerHTML = TRACKS.map(t => `<li><h2><span class="punch"><span class="t">${t.title.replace(/[<&]/g, '')}</span></span></h2></li>`).join('');
+  items = [...reel.children];
+  splits = items.map(li => splitText(li.querySelector('.t'), { words: true, chars: { wrap: 'clip' } }));
+  buildCD();
+}
+
+/* ================= audio ================= */
+let ctx, analyser, master, synth, mediaNode, started = false, playing = false, usingSynth = false, kind = 'synth';
+const el = $('#el');
+const FFT = 4096, NB = 128, HIST = 256;
+let freq = new Uint8Array(FFT / 2), timeD = new Uint8Array(FFT), bandLo = [], bandHi = [];
+const specRow = new Uint8Array(NB), waveRow = new Uint8Array(1024).fill(128);
+
+function initAudio() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ctx.createAnalyser(); analyser.fftSize = FFT; analyser.smoothingTimeConstant = .55;
+  master = ctx.createGain(); analyser.connect(master); master.connect(ctx.destination);
+  mediaNode = ctx.createMediaElementSource(el); mediaNode.connect(analyser);
+  synth = makeSynth(ctx, analyser);
+  const hz = ctx.sampleRate / FFT;
+  for (let b = 0; b < NB; b++) {           // log-spaced bands 32 Hz → 16 kHz
+    const f0 = 32 * Math.pow(500, b / NB), f1 = 32 * Math.pow(500, (b + 1) / NB);
+    bandLo[b] = Math.max(1, Math.floor(f0 / hz)); bandHi[b] = Math.max(bandLo[b], Math.floor(f1 / hz));
+  }
+}
+
+// Original test signal: a seeded drop-tuned riff with kick / snare / hats, so every slot makes noise without a file.
+function makeSynth(ctx, out) {
+  const bus = ctx.createGain(); bus.gain.value = .55; bus.connect(out);
+  const shaper = ctx.createWaveShaper(); const curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) curve[i] = Math.tanh((i / 512 - 1) * 7);
+  shaper.curve = curve; shaper.oversample = '2x';
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800; lp.Q.value = .8;
+  const g = ctx.createGain(); g.gain.value = .32; shaper.connect(lp); lp.connect(g); g.connect(bus);
+  const nb = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  let timer = null, step = 0, nextT = 0, pat = null, t0 = 0;
+  const env = (node, t, peak, dur) => { node.gain.setValueAtTime(peak, t); node.gain.exponentialRampToValueAtTime(.001, t + dur); };
+  function kick(t) { const o = ctx.createOscillator(), a = ctx.createGain(); o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(42, t + .11);
+    env(a, t, 1.1, .26); o.connect(a); a.connect(bus); o.start(t); o.stop(t + .3); }
+  function noise(t, type, f, peak, dur) { const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), a = ctx.createGain(); s.buffer = nb; fl.type = type; fl.frequency.value = f; fl.Q.value = .7;
+    env(a, t, peak, dur); s.connect(fl); fl.connect(a); a.connect(bus); s.start(t, Math.random() * .5); s.stop(t + dur + .02); }
+  function snare(t) { noise(t, 'bandpass', 2100, .9, .17); const o = ctx.createOscillator(), a = ctx.createGain(); o.type = 'triangle'; o.frequency.value = 196; env(a, t, .5, .09); o.connect(a); a.connect(bus); o.start(t); o.stop(t + .1); }
+  function note(t, f, dur, muted) { const a = ctx.createGain(); a.gain.setValueAtTime(0, t); a.gain.linearRampToValueAtTime(muted ? .5 : .8, t + .006); a.gain.setValueAtTime(muted ? .5 : .8, t + dur * (muted ? .35 : .8)); a.gain.linearRampToValueAtTime(0, t + dur);
+    [[f, 'sawtooth'], [f * 1.007, 'sawtooth'], [f / 2, 'square']].forEach(([fr, ty]) => { const o = ctx.createOscillator(); o.type = ty; o.frequency.value = fr; o.connect(a); o.start(t); o.stop(t + dur + .02); });
+    lp.frequency.setValueAtTime(muted ? 1100 : 3400, t); a.connect(shaper); }
+  function tick() {
+    while (nextT < ctx.currentTime + .12) {
+      const s = step % 16, bar = Math.floor(step / 16), chorus = bar % 8 >= 4, fill = bar % 4 === 3 && s >= 12, t = nextT;
+      if (pat.kick[s] || (chorus && s === 0)) kick(t);
+      if (s === 4 || s === 12 || fill) snare(t);
+      if (s % 2 === 0 || chorus) noise(t, 'highpass', 7500, s % 4 === 2 ? .22 : .12, chorus && s % 4 === 2 ? .12 : .035);
+      const n = pat.riff[(bar % 2) * 16 + s];
+      if (n != null) note(t, pat.root * Math.pow(2, (n + (chorus && s % 8 === 6 ? 12 : 0)) / 12), pat.dur * (pat.len[s] || 1), !chorus);
+      nextT += pat.dur; step++;
+    }
+  }
+  return {
+    get time() { return timer ? ctx.currentTime - t0 : 0 }, get bpm() { return pat ? pat.bpm : 0 },
+    start(seed) {
+      this.stop(); let z = seed * 7919 + 13; const r = (a, b) => { z = z + 0x6D2B79F5 | 0; let q = Math.imul(z ^ z >>> 15, 1 | z); q = q + Math.imul(q ^ q >>> 7, 61 | q) ^ q; return a + ((q ^ q >>> 14) >>> 0) / 4294967296 * (b - a); };
+      const bpm = Math.round(r(84, 132)), scale = [0, 0, 0, 3, 5, 6, 7, 10, 12];
+      pat = { bpm, dur: 60 / bpm / 4, root: [73.42, 82.41, 65.41, 61.74][Math.floor(r(0, 3.99))], kick: [], riff: [], len: [] };
+      for (let i = 0; i < 16; i++) { pat.kick[i] = i === 0 || i === 10 || (i % 2 === 0 && i % 8 !== 4 && r(0, 1) < .28); pat.len[i] = r(0, 1) < .25 ? 2 : 1; }
+      for (let i = 0; i < 32; i++) pat.riff[i] = (i % 16 === 0 || r(0, 1) < .58) ? scale[Math.floor(r(0, scale.length - .01))] : null;
+      step = 0; nextT = ctx.currentTime + .06; t0 = nextT; timer = setInterval(tick, 25); tick();
+    },
+    stop() { clearInterval(timer); timer = null; },
+  };
+}
+
+/* ================= analysis: bands + onset detection (spectral flux vs. moving average) ================= */
+const lev = { low: 0, mid: 0, high: 0, rms: 0 };
+const mkDet = (k, floor, gap) => ({ prev: 0, hist: new Float32Array(43), i: 0, last: -9, k, floor, gap });
+const det = { kick: mkDet(2.2, .018, .14), snare: mkDet(2.4, .014, .13) };
+function onset(d, e, t) {
+  const flux = Math.max(0, e - d.prev); d.prev = e;
+  let m = 0; for (const v of d.hist) m += v; m /= d.hist.length;
+  d.hist[d.i++ % d.hist.length] = flux;
+  const th = m * d.k + d.floor;
+  if (flux > th && t - d.last > d.gap) { d.last = t; return Math.min(1, .45 + flux / th * .14); }
+  return 0;
+}
+const kicks = []; let bpmShown = 0;
+function analyse(t) {
+  analyser.getByteFrequencyData(freq); analyser.getByteTimeDomainData(timeD);
+  for (let b = 0; b < NB; b++) {
+    let m = 0; for (let i = bandLo[b]; i <= bandHi[b]; i++) if (freq[i] > m) m = freq[i];
+    specRow[b] = Math.min(255, m * (.85 + b / NB * .7));      // tilt: lift the quiet top end
+  }
+  const avg = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += specRow[i]; return s / (b - a) / 255; };
+  const low = avg(2, 22), mid = avg(40, 84), high = avg(92, 124);
+  lev.low += (low * low * 1.25 - lev.low) * .5; lev.mid += (mid - lev.mid) * .4; lev.high += (high - lev.high) * .4;
+  let trig = 0; for (let i = 0; i < 2048; i++) if (timeD[i] < 128 && timeD[i + 1] >= 128) { trig = i; break; }   // stable scope
+  waveRow.set(timeD.subarray(trig, trig + 1024));
+  let sq = 0; for (let i = 0; i < 1024; i += 2) { const v = (waveRow[i] - 128) / 128; sq += v * v; }
+  lev.rms += (Math.sqrt(sq / 512) - lev.rms) * .3;
+  const k = onset(det.kick, avg(2, 18), t), s = onset(det.snare, avg(76, 116), t);
+  if (k) hitKick(k, t); if (s && !k) hitSnare(s);
+}
+
+/* ================= anime.js-driven impact state ================= */
+const fx = { shock: 0 }, tear = { v: 0, seed: 0 }, wipe = { v: 1, dir: 1 };
+const shakeEl = $('#shake'), lamp = $('#lamp');
+function hitKick(str, t) {
+  animate(fx, { shock: [str, 0], duration: 460, ease: 'outExpo' });
+  animate(lamp, { opacity: [1, .15], duration: 260, ease: 'outQuad' });
+  if (!REDUCED) {
+    animate(shakeEl, { x: [utils.random(-9, 9) * str, 0], y: [utils.random(6, 14) * str, 0], duration: 340, ease: 'outElastic(1,.45)' });
+    animate(cdWrap, { scale: [1 + .05 * str, 1], duration: 320, ease: 'outExpo' });
+    const p = items[cur]?.querySelector('.punch'); if (p) animate(p, { scale: [1 + .035 * str, 1], duration: 380, ease: 'outExpo' });
+  }
+  kicks.push(t); if (kicks.length > 24) kicks.shift();
+  if (kicks.length > 8) {
+    const iv = []; for (let i = 1; i < kicks.length; i++) { let d = kicks[i] - kicks[i - 1]; if (d > 1.6) continue; while (d < .353) d *= 2; while (d > .8) d /= 2; iv.push(d); }
+    if (iv.length > 5) { iv.sort(); const b = Math.round(60 / iv[iv.length >> 1]); if (b !== bpmShown) { bpmShown = b; $('#bpm').textContent = `≈ ${b} BPM`; } }
+  }
+}
+function hitSnare(str) { if (REDUCED) return; tear.seed = Math.random(); animate(tear, { v: [str, 0], duration: 200, ease: 'outQuad' }); }
+
+/* ================= WebGL: everything is printed through halftone screens ================= */
+const cv = $('#gl'), gl = cv.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true });
+const FS = `#version 300 es
+precision highp float;
+uniform vec2 uRes; uniform float uTime, uHead, uLow, uMid, uHigh, uRms, uShock, uTear, uSeed, uWipe, uDir;
+uniform float uVid; uniform sampler2D uWave, uSpec; uniform vec3 uPal[8]; uniform vec4 uMode[2];
+out vec4 o;
+const float PI = 3.14159265;
+float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+vec2 rot(vec2 p,float a){ float c=cos(a), s=sin(a); return vec2(c*p.x-s*p.y, s*p.x+c*p.y); }
+float wave(float s){ return texture(uWave, vec2(clamp(s,0.,1.),.5)).r*2.-1.; }
+// (s, d): position along the wave, signed distance from its baseline
+vec2 sd(vec2 uv, float lay){
+  vec2 p = (uv-.5)*vec2(uRes.x/uRes.y,1.);
+  if(lay<.5) return vec2(uv.x, p.y);
+  if(lay<1.5) return vec2(abs(atan(p.x,-p.y))/PI, length(p)-.2-.07*uVid);
+  return vec2(uv.y, p.x);
+}
+// heat: a band around the wave that swells with the low end, plus a drifting poster gradient
+float fieldA(vec2 uv, float lay){
+  vec2 q = sd(uv,lay); vec2 p = (uv-.5)*vec2(uRes.x/uRes.y,1.);
+  float band = exp(-abs(q.y)*(9.5-4.5*uLow))*(.1+.9*uLow);
+  float n = vnoise(p*1.3+vec2(uTime*.05,-uTime*.035));
+  float grad = smoothstep(.25,1.15,uv.y+(n-.5)*.55)*(.5+.5*uMid);
+  return clamp(band+grad,0.,1.);
+}
+// shrapnel: spectrum history thrown outward from the wave — bass at the centre, age = distance
+float fieldB(vec2 uv, float lay){
+  vec2 q = sd(uv,lay);
+  float f = lay<.5 || lay>1.5 ? abs(q.x-.5)*2. : q.x;
+  float age = clamp(abs(q.y)/(lay>.5&&lay<1.5 ? .62 : .5),0.,1.);
+  float v = texture(uSpec, vec2(f*.97+.015, fract(uHead-age*.46))).r;
+  v = max(0.,v-.3)/.7; v = pow(v,2.2)*1.35*pow(1.-age,.85);
+  return clamp(v,0.,1.);
+}
+// video window: a zone hugging the wave (inside the ring) that opens with loudness, plus the shrapnel
+float fieldV(vec2 uv, float lay){
+  vec2 q = sd(uv,lay);
+  float win = lay>.5&&lay<1.5 ? smoothstep(.03,-.02,q.y)+exp(-max(q.y,0.)*3.2)*.5 : exp(-abs(q.y)*2.3);
+  return clamp(win*(.66+1.4*uRms+.4*uLow)+fieldB(uv,lay)*.6,0.,1.);
+}
+float halftone(vec2 px, float ang, float cell, float shape, float lay, int which){
+  vec2 r = rot(px,ang)/cell; vec2 id = floor(r)+.5;
+  if(shape>.5&&shape<1.5) id.x = r.x;                       // line screen: tone varies along the line
+  vec2 f = r-id; vec2 cuv = rot(id*cell,-ang)/uRes;
+  float v = which==0 ? fieldA(cuv,lay) : which==1 ? fieldB(cuv,lay) : fieldV(cuv,lay);
+  float d = shape<.5 ? length(f)*1.4143 : shape<1.5 ? abs(f.y)*2. : max(abs(f.x),abs(f.y))*2.;
+  if(shape<.5) v = sqrt(v);
+  float aa = 1.2/cell;
+  return smoothstep(v+aa, v-aa, d)*step(.03,v);
+}
+vec4 scene(vec2 uv, vec3 paper, vec3 ink, vec3 hot, vec3 core, vec4 mode){
+  vec2 px = uv*uRes; float lay = mode.x, shape = mode.y, cell = mode.w*uRes.y/900.;
+  float rough = .88+.12*hash(floor(px/2.));                  // uneven ink lay-down
+  vec3 c = paper*(.97+.03*vnoise(px*.35));
+  vec2 mis = uShock*vec2(.016,.009)*uRes.y;                   // plates knocked out of register on the kick
+  float a = halftone(px+mis, mode.z+1.05, cell*1.7, mod(shape+1.,3.), lay, 0);
+  c = mix(c, hot, a*rough*(1.-.4*uVid));
+  float b = halftone(px, mode.z, cell, shape, lay, 1);
+  c = mix(c, ink, b*rough*(1.-.55*uVid));
+  float al = 1.-uVid*halftone(px-mis*.6, mode.z+.52, cell*1.9, shape>.5&&shape<1.5 ? 0. : shape, lay, 2);   // holes through to the video
+  vec2 q = sd(uv,lay); float amp = .30+.12*uShock;
+  float w2 = wave(q.x*.8+.012+uShock*.03)*amp*1.18;
+  float ghost = step(min(0.,w2)-.005,q.y)*step(q.y,max(0.,w2)+.005);
+  float gm = ghost*rough*smoothstep(.004,.02,abs(w2)); c = mix(c, hot, gm); al = mix(al,1.,gm);
+  float w = wave(q.x*.8)*amp;
+  float fill = step(min(0.,w),q.y)*step(q.y,max(0.,w));
+  c = mix(c, mix(core,hot,smoothstep(.15,1.,abs(q.y)/max(abs(w),.002))), fill); al = mix(al,1.,fill);
+  float e = fwidth(q.y)*1.5;
+  float ln = max(smoothstep(.004+e,.004,abs(q.y-w)), smoothstep(.0016+e,.0016,abs(q.y))*.9);
+  c = mix(c, ink, ln); al = mix(al,1.,ln);
+  return vec4(c,al);
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy/uRes;
+  uv = (uv-.5)*(1.-uShock*.04)+.5;
+  float bandId = floor(uv.y*13.+uSeed*9.), h = hash(vec2(bandId,uSeed*31.));
+  uv.x += uTear*(h-.5)*.16*step(.5,hash(vec2(bandId*1.7,uSeed)));
+  vec4 c = scene(uv,uPal[4],uPal[5],uPal[6],uPal[7],uMode[1]);
+  if(uWipe<1.){                                               // new plate lands as growing dots
+    vec4 c0 = scene(uv,uPal[0],uPal[1],uPal[2],uPal[3],uMode[0]);
+    float cell = uRes.y/26.; vec2 r = gl_FragCoord.xy/cell; vec2 id = floor(r)+.5; vec2 f = r-id;
+    float y = id.y*cell/uRes.y; y = uDir>0. ? y : 1.-y;
+    float m = clamp((uWipe*1.45-y)/.45,0.,1.);
+    c = mix(c0,c,step(max(abs(f.x),abs(f.y))*2., m*1.02)*step(.001,m));
+  }
+  c.rgb += (hash(gl_FragCoord.xy+fract(uTime)*91.)-.5)*.055;
+  o = vec4(c.rgb*c.a,c.a);
+}`;
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }`;
+function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.bindAttribLocation(prog, 0, 'p'); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+const U = n => gl.getUniformLocation(prog, n);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+function tex(unit, w, h, wrapT) { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(w * h).fill(h === 1 ? 128 : 0));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapT); return t; }
+tex(0, 1024, 1, gl.CLAMP_TO_EDGE); tex(1, NB, HIST, gl.REPEAT);
+gl.uniform1i(U('uWave'), 0); gl.uniform1i(U('uSpec'), 1);
+let head = 0, vidV = 0;
+const pal = new Float32Array(24), mode = new Float32Array(8);
+function resize() { const d = Math.min(devicePixelRatio || 1, 1.5); cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); gl.viewport(0, 0, cv.width, cv.height); }
+addEventListener('resize', () => { resize(); placeReel(false); });
+
+function frame(now) {
+  if (ctx && playing) {
+    analyse(ctx.currentTime);
+    gl.activeTexture(gl.TEXTURE0); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1024, 1, gl.RED, gl.UNSIGNED_BYTE, waveRow);
+  } else { for (const k in lev) lev[k] *= .9; specRow.fill(0); }
+  head = (head + 1) % HIST;
+  gl.activeTexture(gl.TEXTURE1); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, head, NB, 1, gl.RED, gl.UNSIGNED_BYTE, specRow);
+  gl.uniform2f(U('uRes'), cv.width, cv.height); gl.uniform1f(U('uTime'), now / 1000); gl.uniform1f(U('uHead'), (head + .5) / HIST);
+  gl.uniform1f(U('uLow'), Math.min(1, lev.low)); gl.uniform1f(U('uMid'), lev.mid); gl.uniform1f(U('uHigh'), lev.high); gl.uniform1f(U('uRms'), lev.rms);
+  gl.uniform1f(U('uShock'), fx.shock); gl.uniform1f(U('uTear'), tear.v); gl.uniform1f(U('uSeed'), tear.seed);
+  vidV += ((kind === 'yt' && !live ? 1 : 0) - vidV) * .06; gl.uniform1f(U('uVid'), vidV);
+  gl.uniform1f(U('uWipe'), wipe.v); gl.uniform1f(U('uDir'), wipe.dir);
+  gl.uniform3fv(U('uPal'), pal); gl.uniform4fv(U('uMode'), mode);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if (cdDisc) { if (playing) cdSpin = (cdSpin + 1.1 + lev.low * 5) % 360; cdDisc.setAttribute('transform', `rotate(${cdR.r.toFixed(2)})`); cdLabel.setAttribute('transform', `rotate(${cdSpin.toFixed(2)})`); }
+  hud();
+}
+
+/* ================= HUD ================= */
+const fmt = s => isFinite(s) ? `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '--:--';
+const two = v => String(Math.min(99, Math.round(v * 99))).padStart(2, '0');
+let hudN = 0; const barI = $('#bar i');
+function hud() {
+  if (hudN++ % 4) return;
+  $('#rL').textContent = two(lev.low); $('#rM').textContent = two(lev.mid * 1.4); $('#rH').textContent = two(lev.high * 1.8);
+  let txt, prog = 0;
+  if (live) { txt = 'Live'; prog = 0; }
+  else if (kind === 'yt') { const t = ytP?.getCurrentTime?.() || 0, d = ytP?.getDuration?.() || 0; txt = `${fmt(t)} / ${d ? fmt(d) : '--:--'}`; prog = d ? t / d : 0; }
+  else if (usingSynth) { const t = synth.time; txt = fmt(t); const loop = 16 * 4 * 60 / (synth.bpm || 100); prog = (t % loop) / loop; }
+  else { txt = `${fmt(el.currentTime)} / ${fmt(el.duration)}`; prog = el.duration ? el.currentTime / el.duration : 0; }
+  $('#time').textContent = txt; barI.style.transform = `scaleX(${prog || 0})`;
+}
+
+/* ================= track switching ================= */
+let cur = 0, loadT = 0, dockT = 0, reelAnim;
+function placeReel(anim = true) {
+  const li = items[cur]; if (!li) return;
+  const y = innerHeight / 2 - (li.offsetTop + li.offsetHeight / 2);
+  reelAnim?.pause();
+  if (!anim || REDUCED) utils.set(reel, { y }); else reelAnim = animate(reel, { y, duration: 850, ease: 'outExpo' });
+}
+function setDock(on) {
+  clearTimeout(dockT);
+  const docked = document.body.classList.contains('docked');
+  if (on === docked) return;
+  document.body.classList.toggle('docked', on);
+  const h = items[cur].offsetHeight, s = innerWidth < 700 ? .46 : .3;
+  animate(wrap, on ? { scale: s, y: innerHeight / 2 - 78 - h * s / 2, duration: 800, ease: 'inOutExpo' } : { scale: 1, y: 0, duration: 550, ease: 'outExpo' });
+}
+const browse = () => { setDock(false); clearTimeout(dockT); if (playing) dockT = setTimeout(() => setDock(true), 1700); };
+
+function go(i, dir = 1, first = false) {
+  i = (i + TRACKS.length) % TRACKS.length;
+  if (i === cur && !first) return;
+  const prev = cur; cur = i; const t = TRACKS[i], P = PALS[i % PALS.length];
+  items.forEach((li, k) => li.classList.toggle('cur', k === i));
+  cdTo(i, cdTurns); cdTurns = 0;
+  // palette + screen: old plate → new plate, wiped in by growing dots (uWipe tweened by anime)
+  pal.copyWithin(0, 12, 24); mode.copyWithin(0, 4, 8);
+  P.forEach((h, k) => pal.set(hex(h), 12 + k * 3)); mode.set(MODES[i % MODES.length], 4);
+  if (first) { pal.copyWithin(0, 12, 24); mode.copyWithin(0, 4, 8); }
+  else { wipe.dir = dir; animate(wipe, { v: [0, 1], duration: REDUCED ? 1 : 950, ease: 'inOutQuart' }); }
+  const rs = document.documentElement.style;
+  setTimeout(() => ['--paper', '--ink', '--hot', '--core'].forEach((v, k) => rs.setProperty(v, P[k])), first ? 0 : 380);
+  const byLum = [...P].sort((a, b) => lum(a) - lum(b)); rs.setProperty('--vdark', byLum[0]); rs.setProperty('--vlight', byLum[3]);
+  // type
+  browse(); placeReel(!first);
+  if (!REDUCED) animate(splits[i].chars, { y: [dir > 0 ? '105%' : '-105%', '0%'], duration: 760, delay: stagger(13, { from: dir > 0 ? 'first' : 'last' }), ease: 'outExpo' });
+  $('#mNo').textContent = `${String(i + 1).padStart(2, '0')} / ${String(TRACKS.length).padStart(2, '0')}`;
+  const line = [TRACKS.indexOf(t) < 12 ? ARTIST : null, t.album, t.year].filter(Boolean).join(' — ');
+  animate('#mAlbum', { innerHTML: scrambleText({ text: line.toUpperCase(), chars: 'A-Z0-9' }), duration: REDUCED ? 1 : 700, ease: 'linear' });
+  bpmShown = 0; kicks.length = 0; $('#bpm').textContent = '— BPM';
+  clearTimeout(loadT); if (started) loadT = setTimeout(load, first ? 0 : 320);   // debounce fast scrolling
+}
+
+const srcLabel = () => live ? 'Live input' : kind === 'synth' ? 'No file — test signal' : kind === 'file' ? 'File' : cap ? 'YouTube' : 'YouTube — press V to sync visuals';
+function load() {
+  if (live) return;
+  const t = TRACKS[cur]; synth.stop(); el.pause(); ytPause();
+  kind = t.url ? 'file' : t.yt ? 'yt' : 'synth'; usingSynth = kind === 'synth';
+  document.body.classList.toggle('video', kind === 'yt'); routeCap();
+  $('#src').textContent = srcLabel();
+  if (kind === 'synth') { synth.start(cur + 1); setPlaying(true); }
+  else if (kind === 'file') { el.src = t.url; el.play().then(() => setPlaying(true)).catch(e => { console.warn(e); t.url = null; load(); }); }
+  else ytLoad(t.yt);
+}
+
+/* ---- YouTube: the official embed supplies picture + sound ---- */
+let ytP = null, ytReady = null, ytWant = null;
+function ytInit() {
+  if (ytReady) return ytReady;
+  return ytReady = new Promise(res => {
+    window.onYouTubeIframeAPIReady = () => { const p = new YT.Player('yt', { width: '100%', height: '100%',
+      playerVars: { controls: 0, disablekb: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, origin: location.origin },
+      events: { onReady: () => { ytP = p; res(p); }, onStateChange: ytState, onError: e => { console.warn('youtube error', e.data, TRACKS[cur].title); if (kind === 'yt') { TRACKS[cur].yt = null; load(); } } } }); };
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; document.head.append(sc);
+  });
+}
+function ytLoad(id) { ytWant = id; $('#src').textContent = 'YouTube — loading'; ytInit().then(p => { if (kind === 'yt' && ytWant === id && !live) p.loadVideoById(id); }); }
+function ytPause() { try { ytP?.pauseVideo(); } catch {} }
+function ytState(e) {
+  if (kind !== 'yt' || live) return;
+  if (e.data === 1) setPlaying(true); else if (e.data === 2) setPlaying(false); else if (e.data === 0) go(cur + 1, 1);
+}
+// The embed is a cross-origin frame, so its sound can only be analysed by capturing this tab's own audio (one permission click).
+let cap = null, capGain = null, capSrc = null;
+function routeCap() { const y = kind === 'yt' && !live; if (capGain) capGain.gain.value = y ? 1 : 0; if (master && !live) master.gain.value = y ? 0 : 1; }
+async function ensureCap() {
+  if (cap || !ctx) return !!cap;
+  try {
+    const st = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, preferCurrentTab: true, selfBrowserSurface: 'include' });
+    if (!st.getAudioTracks().length) { st.getTracks().forEach(t => t.stop()); throw new Error('no audio shared'); }
+    cap = st; capGain = ctx.createGain(); capSrc = ctx.createMediaStreamSource(st); capSrc.connect(capGain); capGain.connect(analyser); routeCap();
+    st.getAudioTracks()[0].addEventListener('ended', () => { st.getTracks().forEach(t => t.stop()); capGain?.disconnect(); cap = capGain = capSrc = null; if (playing) $('#src').textContent = srcLabel(); });
+  } catch (e) { console.warn('tab capture', e.message); }
+  if (playing) $('#src').textContent = srcLabel();
+  return !!cap;
+}
+function setPlaying(on) { playing = on; if (on) { clearTimeout(dockT); dockT = setTimeout(() => setDock(true), 1700); } else setDock(false);
+  if (!on) $('#src').textContent = 'Paused'; else $('#src').textContent = srcLabel(); }
+// Live input: visualise whatever is playing elsewhere (a Spotify / Apple Music / YouTube tab, or the mic).
+let live = false, liveStream = null, liveNode = null;
+async function goLive() {
+  const label = $('#liveBtn span');
+  if (live) { liveStream?.getTracks().forEach(t => t.stop()); liveNode?.disconnect(); live = false; master.gain.value = 1; label.textContent = 'L — Live input: off'; load(); return; }
+  if (!started) power(true);
+  let stream = null;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); } catch {}
+  if (stream && !stream.getAudioTracks().length) { stream.getTracks().forEach(t => t.stop()); stream = null; }   // shared without audio
+  if (!stream) { try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); } catch {} }
+  if (!stream) { $('#src').textContent = 'No input granted'; if (!playing) load(); return; }
+  synth.stop(); el.pause(); ytPause(); clearTimeout(loadT); document.body.classList.remove('video'); if (capGain) capGain.gain.value = 0;
+  liveStream = stream; liveNode = ctx.createMediaStreamSource(stream); liveNode.connect(analyser);
+  master.gain.value = 0;                     // analyse only — the source app is already audible
+  live = true; usingSynth = false; setPlaying(true); $('#src').textContent = 'Live input'; label.textContent = 'L — Live input: on';
+  stream.getAudioTracks()[0].addEventListener('ended', () => { if (live) goLive(); });
+}
+$('#liveBtn').addEventListener('click', e => { e.stopPropagation(); goLive(); });
+function toggle() {
+  if (live) return;
+  if (!started) return power();
+  if (kind === 'yt') { playing ? ytP?.pauseVideo() : ytP?.playVideo(); return; }
+  if (playing) { usingSynth ? synth.stop() : el.pause(); setPlaying(false); }
+  else if (usingSynth) { synth.start(cur + 1); setPlaying(true); } else el.play().then(() => setPlaying(true));
+}
+function power(skipLoad) {
+  if (started) return; started = true; initAudio(); ctx.resume();
+  animate('#gate', { opacity: 0, x: -30, duration: 400, ease: 'inQuad', onComplete: () => $('#gate').remove() });
+  if (skipLoad !== true) { if (TRACKS.some(t => t.yt && !t.url)) ensureCap(); load(); }
+}
+el.addEventListener('ended', () => go(cur + 1, 1));
+el.addEventListener('error', () => { if (el.src && kind === 'file' && started) { TRACKS[cur].url = null; load(); } });
+
+/* ================= input ================= */
+let acc = 0, lock = 0;
+addEventListener('wheel', e => {
+  e.preventDefault(); const now = performance.now();
+  if (now < lock) return; acc += e.deltaY;
+  if (Math.abs(acc) > 70) { go(cur + Math.sign(acc), Math.sign(acc)); acc = 0; lock = now + 520; }
+}, { passive: false });
+let ty = null;
+addEventListener('touchstart', e => ty = e.touches[0].clientY, { passive: true });
+addEventListener('touchend', e => { if (ty == null) return; const d = ty - e.changedTouches[0].clientY; if (Math.abs(d) > 50) go(cur + Math.sign(d), Math.sign(d)); ty = null; });
+addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'j') go(cur + 1, 1);
+  else if (e.key === 'ArrowUp' || e.key === 'k') go(cur - 1, -1);
+  else if (e.key === ' ') { e.preventDefault(); toggle(); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const d = e.key === 'ArrowRight' ? 10 : -10; if (kind === 'yt') ytP?.seekTo((ytP.getCurrentTime() || 0) + d, true); else if (kind === 'file') el.currentTime += d; }
+  else if (e.key === 'v' && started) ensureCap();
+  else if (e.key === 's') shuffle();
+  else if (e.key === 'l') goLive();
+  else if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+});
+addEventListener('click', e => { if (e.target.closest('#cdWrap,#bar')) { if (!started) power(); return; } toggle(); });
+$('#bar').addEventListener('click', e => { const f = e.clientX / innerWidth; if (kind === 'yt') { const d = ytP?.getDuration?.(); if (d) ytP.seekTo(f * d, true); } else if (kind === 'file' && el.duration) el.currentTime = f * el.duration; });
+addEventListener('mousemove', (() => { let last = 0; return e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 40 && performance.now() - last > 400) { last = performance.now(); if (document.body.classList.contains('docked')) browse(); } }; })());
+
+// drop your own files (or a whole album) anywhere
+let dragN = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragN++; document.body.classList.add('dragging'); });
+addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove('dragging'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault(); dragN = 0; document.body.classList.remove('dragging');
+  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|m4a|aac|flac|wav|ogg|opus|aiff?)$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!files.length) return;
+  const before = TRACKS.map(t => t.url); files.forEach(f => assign(f.name, URL.createObjectURL(f)));
+  const firstNew = TRACKS.findIndex((t, i) => t.url && t.url !== before[i]);
+  const keep = cur; buildReel(); cur = -1; go(firstNew >= 0 ? firstNew : keep, 1, true);
+  if (live) return; if (!started) power(); else load();
+});
+
+/* ================= boot ================= */
+try { const r = await fetch('./api/tracks'); if (r.ok) (await r.json()).forEach(f => assign(f, './tracks/' + encodeURIComponent(f))); } catch {}
+buildReel(); resize(); go(0, 1, true);
+document.fonts?.ready.then(() => placeReel(false));
+createTimer({ frameRate: 60, onUpdate: () => frame(performance.now()) });
+window.__viz = { go, power, toggle, lev, get kind() { return kind; }, get cap() { return !!cap; }, get yt() { return ytP; }, get cur() { return cur; } };
+</script>
+</body>
+</html>

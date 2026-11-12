@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+# your own audio files stay local
+tracks/*
+!tracks/.gitkeep
