@@ -20,6 +20,7 @@
     --font: "Redaction", "Times New Roman", serif;
     --mono: "DM Mono", ui-monospace, Menlo, monospace;
     --pad: clamp(14px, 2.2vw, 34px);
+    --cd: clamp(150px, 17vw, 250px);
   }
   * { box-sizing: border-box; margin: 0; }
   html, body { height: 100%; overflow: hidden; background: var(--paper); color: var(--ink); font-family: var(--font);
@@ -28,8 +29,8 @@
   /* the video lives BEHIND the print: the shader punches halftone holes through to it */
   #vid { position: fixed; inset: 0; z-index: 0; overflow: hidden; isolation: isolate; background: #000; opacity: 0; transition: opacity .7s; }
   body.video #vid { opacity: 1; }
-  #vid iframe { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.78vh); height: max(100vh, 56.25vw); transform: translate(-50%, -50%) scale(1.14);
-                filter: grayscale(1) contrast(1.25) brightness(1.35); pointer-events: none; border: 0; }
+  #vid iframe { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.78vh); height: max(100vh, 56.25vw); transform: translate(-50%, -50%) scale(var(--vzoom, 1.14));
+                filter: var(--vfilter, grayscale(1) contrast(1.25) brightness(1.35)); pointer-events: none; border: 0; }
   #vid i { position: absolute; inset: 0; transition: background-color .6s; }
   #vid .mul { background: var(--vlight, #EDE6D6); mix-blend-mode: multiply; }      /* lights → lightest ink */
   #vid .lit { background: var(--vdark, #0C0B0A); mix-blend-mode: lighten; }        /* darks → darkest ink */
@@ -49,7 +50,7 @@
   /* ---- the reel: one enormous setlist, the current title centred ---- */
   #wrap { position: fixed; inset: 0; transform-origin: var(--pad) 50%; z-index: 3; pointer-events: none; }
   #reel { list-style: none; padding: 0 var(--pad); position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
-  #reel li { padding: 1.1vw 0; max-width: 92vw; transition: opacity .45s; }
+  #reel li { padding: 1.1vw 0; max-width: calc(100vw - var(--pad) * 2 - var(--cd) - 2vw); transition: opacity .45s; }
   #reel h2 { font-size: clamp(44px, 11.2vw, 230px); line-height: .92; letter-spacing: -.03em; font-weight: 700; text-transform: uppercase; }
   #reel .t { color: transparent; -webkit-text-stroke: 1.5px var(--ink); transition: background-color .35s, color .35s; -webkit-box-decoration-break: clone; box-decoration-break: clone; padding: 0 .06em 0 .02em; }
   #reel li:not(.cur) { opacity: .42; }
@@ -63,9 +64,10 @@
   #read .lamp { width: 22px; height: 22px; background: var(--hot); opacity: .15; }
 
   /* ---- the disc: drag to turn, click a segment to pick, centre to shuffle ---- */
-  #cdWrap { --d: clamp(150px, 17vw, 250px); position: fixed; right: calc(var(--pad) - 8px); top: 50%; width: var(--d); height: var(--d); margin-top: calc(var(--d) / -2); z-index: 6; touch-action: none; }
+  #cdWrap { --d: var(--cd); will-change: transform; position: fixed; right: calc(var(--pad) - 8px); top: 50%; width: var(--d); height: var(--d); margin-top: calc(var(--d) / -2); z-index: 6; touch-action: none; }
   #cd { width: 100%; height: 100%; display: block; overflow: visible; cursor: grab; }
   #cd.drag { cursor: grabbing; }
+  #cdWrap.collapsed, #cdWrap.collapsed #cd, #cdWrap.collapsed .seg { cursor: pointer; }
   #cd * { transition: fill .5s, stroke .5s, opacity .25s; }
   #cd .disc { fill: var(--ink); }
   #cd .groove { fill: none; stroke: var(--paper); stroke-width: .5; opacity: .4; }
@@ -94,7 +96,7 @@
   #drop { position: fixed; inset: 0; z-index: 20; background: var(--hot); color: var(--paper); display: none; align-items: center; padding: var(--pad);
           font-size: 22vw; font-weight: 700; letter-spacing: -.06em; line-height: .85; text-transform: uppercase; }
   body.dragging #drop { display: flex; }
-  @media (max-width: 700px) { #cdWrap { --d: 120px; } header .hint { display: none; } }
+  @media (max-width: 700px) { :root { --cd: 120px; } header .hint { display: none; } }
 </style>
 </head>
 <body>
@@ -135,6 +137,13 @@ const tap = { f: null, t: null, at: -1e9, sr: 0 };
 addEventListener('message', e => { if (!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(e.origin) || !e.data || !e.data.ratmTap) return;
   tap.f = e.data.f; tap.t = e.data.t; tap.sr = e.data.sr; tap.at = performance.now(); });
 const tapLive = () => performance.now() - tap.at < 400;
+// per-video picture correction: 4:3 club footage needs more zoom (no side bars) and a harder grade than the HD promos
+const VID_FX = {
+  rMjjsjNBS_4: { zoom: 1.52, filter: 'grayscale(1) brightness(1.7) contrast(1.7)' },
+  '9HdqMAXQtBo': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
+  HKm6GkXOHCc: { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
+  '0MLTwf5lKd8': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
+};
 const ARTIST = 'Rage Against the Machine';
 const TRACKS = [
   ['Bombtrack', 'Self-titled', 1992], ['Killing in the Name', 'Self-titled', 1992],
@@ -191,7 +200,32 @@ function buildCD() {
   const hub = $('#cdHub'); hub.addEventListener('click', e => { e.stopPropagation(); shuffle(); });
   hub.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); shuffle(); } });
 }
+// the disc is a floating button: it comes forward on a track change, then tucks into the right edge after 3 s,
+// leaving the pointer mark and the current track number showing
+let cdState = 'open', cdT = 0;
+const cdShift = () => { const d = cdWrap.offsetWidth; return innerWidth - (cdWrap.offsetLeft + d) + d * .76; };
+function cdShow(hold) {
+  clearTimeout(cdT);
+  if (cdState !== 'open') { cdState = 'open'; cdWrap.classList.remove('collapsed'); animate(cdWrap, { x: 0, duration: REDUCED ? 1 : 650, ease: 'outExpo' }); }
+  if (!hold) cdT = setTimeout(cdHide, 3000);
+}
+function cdHide() {
+  if (dg || cdWrap.matches(':hover')) return;
+  cdState = 'collapsed'; cdWrap.classList.add('collapsed'); animate(cdWrap, { x: cdShift(), duration: REDUCED ? 1 : 900, ease: 'inOutQuart' });
+}
+cdWrap.addEventListener('pointerenter', e => {
+  if (e.pointerType === 'touch') return;
+  if (cdState === 'open') clearTimeout(cdT);
+  else animate(cdWrap, { x: cdShift() - cdWrap.offsetWidth * .14, duration: 380, ease: 'outBack(2.2)' });      // peek: "I can be pulled out"
+});
+cdWrap.addEventListener('pointerleave', () => {
+  if (dg) return;
+  if (cdState === 'open') cdShow(); else animate(cdWrap, { x: cdShift(), duration: 450, ease: 'outQuart' });
+});
+addEventListener('resize', () => { if (cdState === 'collapsed') utils.set(cdWrap, { x: cdShift() }); });
+
 function cdTo(i, turns = 0) {
+  cdShow(cdWrap.matches(':hover'));
   let t = 180 - i * cdStep; t += 360 * Math.round((cdR.r - t) / 360); t -= 360 * turns;
   cdAnim?.pause(); cdAnim = animate(cdR, { r: t, duration: REDUCED ? 1 : turns ? 1700 : 900, ease: turns ? 'outQuart' : 'outExpo' });
   cdWrap.querySelectorAll('.seg').forEach((sg, k) => sg.classList.toggle('cur', k === i));
@@ -206,7 +240,9 @@ function shuffle() {
 // drag the disc like a jog wheel; release snaps to the nearest track under the pointer mark
 let dg = null;
 cdWrap.addEventListener('pointerdown', e => {
+  if (cdState === 'collapsed') { cdShow(e.pointerType !== 'touch'); return; }      // first click only brings it out
   if (e.target.closest('#cdHub')) return;
+  clearTimeout(cdT);
   const b = cdWrap.getBoundingClientRect(), cx = b.left + b.width / 2, cy = b.top + b.height / 2;
   const ang = ev => Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
   cdAnim?.pause(); dg = { last: ang(e), ang, acc: 0, seg: e.target.closest('.seg') };
@@ -216,7 +252,7 @@ cdWrap.addEventListener('pointermove', e => {
   if (!dg) return; const a = dg.ang(e); const d = ((a - dg.last + 540) % 360) - 180; dg.last = a; dg.acc += d; cdR.r += d;
 });
 const cdRelease = () => {
-  if (!dg) return; const g = dg; dg = null; $('#cd')?.classList.remove('drag');
+  if (!dg) return; const g = dg; dg = null; $('#cd')?.classList.remove('drag'); cdShow(cdWrap.matches(':hover'));
   const N = TRACKS.length; let i;
   if (Math.abs(g.acc) < 4) { if (!g.seg) return cdTo(cur); i = +g.seg.dataset.i; }
   else i = ((Math.round((180 - cdR.r) / cdStep) % N) + N) % N;
@@ -571,7 +607,9 @@ function go(i, dir = 1, first = false) {
   else { wipe.dir = dir; animate(wipe, { v: [0, 1], duration: REDUCED ? 1 : 950, ease: 'inOutQuart' }); }
   const rs = document.documentElement.style;
   resetStructure(); curP = P; setTimeout(() => applyVars(false), first ? 0 : 380);
-  const byLum = [...P].sort((a, b) => lum(a) - lum(b)); rs.setProperty('--vdark', byLum[0]); rs.setProperty('--vlight', byLum[3]);
+  const byLum = [...P].sort((a, b) => lum(a) - lum(b));
+  rs.setProperty('--vdark', lum(P[0]) > .5 && lum(P[2]) < .5 ? P[2] : byLum[0]); rs.setProperty('--vlight', byLum[3]);
+  const fxv = VID_FX[t.yt] || {}; rs.setProperty('--vzoom', fxv.zoom || 1.14); fxv.filter ? rs.setProperty('--vfilter', fxv.filter) : rs.removeProperty('--vfilter');
   // type
   browse(); placeReel(!first);
   if (!REDUCED) animate(splits[i].chars, { y: [dir > 0 ? '105%' : '-105%', '0%'], duration: 760, delay: stagger(13, { from: dir > 0 ? 'first' : 'last' }), ease: 'outExpo' });
@@ -609,7 +647,7 @@ function ytLoad(id) { ytWant = id; $('#src').textContent = 'YouTube — loading'
 function ytPause() { try { ytP?.pauseVideo(); } catch {} }
 function ytState(e) {
   if (kind !== 'yt' || live) return;
-  if (e.data === 1) setPlaying(true); else if (e.data === 2) setPlaying(false); else if (e.data === 0) go(cur + 1, 1);
+  if (e.data === 1) { try { ytP.unloadModule('captions'); ytP.unloadModule('cc'); } catch {} setPlaying(true); } else if (e.data === 2) setPlaying(false); else if (e.data === 0) go(cur + 1, 1);
 }
 // The embed is a cross-origin frame, so its sound can only be analysed by capturing this tab's own audio (one permission click).
 let cap = null, capGain = null, capSrc = null;
