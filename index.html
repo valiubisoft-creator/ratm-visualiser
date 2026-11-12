@@ -43,9 +43,19 @@
   .plate.thin { font-weight: 400; }
   .plate.hot { background: var(--hot); color: var(--paper); }
 
-  header { position: fixed; top: var(--pad); left: var(--pad); right: var(--pad); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; z-index: 5; pointer-events: none; }
-  header .l, header .r { display: flex; gap: 3px; flex-wrap: wrap; }
-  header .r { justify-content: flex-end; }
+  header { position: fixed; top: var(--pad); right: var(--pad); display: flex; flex-direction: column; align-items: flex-end; gap: 3px; z-index: 8; pointer-events: none; }
+  header .row { display: flex; gap: 3px; }
+  #ctl { all: unset; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; background: var(--ink); color: var(--paper); padding: 4px 8px 3px 7px;
+         font: 500 11px/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; transition: background-color .3s, color .3s; }
+  #ctl:hover, #ctl:focus-visible { background: var(--hot); }
+  #ctl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: square; }
+  #ctl .car { transition: transform .35s cubic-bezier(.2, .8, .2, 1); }
+  #ctl[aria-expanded="true"] .car { transform: rotate(180deg); }
+  #ctlList { display: none; flex-direction: column; align-items: flex-end; gap: 3px; pointer-events: auto; }
+  #ctlList.open { display: flex; }
+  #ctlList .rw { display: flex; gap: 3px; }
+  #ctlList button { all: unset; cursor: pointer; display: flex; gap: 3px; }
+  #ctlList button:hover .plate, #ctlList button:focus-visible .plate { background: var(--hot); }
 
   /* ---- the reel: one enormous setlist, the current title centred ---- */
   #wrap { position: fixed; inset: 0; transform-origin: var(--pad) 50%; z-index: 3; pointer-events: none; }
@@ -61,6 +71,11 @@
 
   #meta { position: fixed; left: var(--pad); bottom: calc(var(--pad) + 14px); z-index: 5; display: flex; gap: 3px; flex-wrap: wrap; pointer-events: none; }
   #read { position: fixed; right: var(--pad); bottom: calc(var(--pad) + 14px); z-index: 5; display: flex; gap: 3px; align-items: flex-end; pointer-events: none; }
+  #lv { display: flex; gap: 4px; align-items: flex-end; background: var(--ink); padding: 6px 7px 3px; transition: background-color .5s; }
+  #lv span { display: flex; flex-direction: column; align-items: center; gap: 2px; font: 500 7.5px/1 var(--mono); color: var(--paper); transition: color .5s; }
+  #lv em { position: relative; display: block; width: 8px; height: 30px; }
+  #lv i { position: absolute; inset: 0; background: var(--paper); transform-origin: 50% 100%; transform: scaleY(.03); transition: background-color .5s; }
+  #lv u { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--hot); }
   #read .lamp { width: 22px; height: 22px; background: var(--hot); opacity: .15; }
 
   /* ---- the disc: drag to turn, click a segment to pick, centre to shuffle ---- */
@@ -96,7 +111,7 @@
   #drop { position: fixed; inset: 0; z-index: 20; background: var(--hot); color: var(--paper); display: none; align-items: center; padding: var(--pad);
           font-size: 22vw; font-weight: 700; letter-spacing: -.06em; line-height: .85; text-transform: uppercase; }
   body.dragging #drop { display: flex; }
-  @media (max-width: 700px) { :root { --cd: 120px; } header .hint { display: none; } }
+  @media (max-width: 700px) { :root { --cd: 120px; } }
 </style>
 </head>
 <body>
@@ -106,15 +121,31 @@
 <div id="wrap"><ol id="reel"></ol></div>
 
 <header>
-  <div class="l"><span class="plate">RATM Visualiser</span><span class="plate thin hint">Scroll ↕ track · Space play · ← → seek · S shuffle · V sync video</span><button class="plate hot" id="liveBtn" style="all:unset;pointer-events:auto;cursor:pointer" type="button"><span class="plate hot">L — Live input: off</span></button></div>
-  <div class="r"><span class="plate hot" id="src">Standby</span><span class="plate" id="time">00:00</span></div>
+  <div class="row"><span class="plate hot" id="src">Standby</span><span class="plate" id="time">00:00</span></div>
+  <div id="ctlWrap" style="display:contents">
+    <button id="ctl" type="button" aria-expanded="false" aria-controls="ctlList">
+      <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3.5h7M11 3.5h2M1 10.5h2M6 10.5h7"/><rect x="8" y="2" width="3" height="3"/><rect x="3" y="9" width="3" height="3"/></svg>
+      Controls
+      <svg class="car" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5.5l4 4l4-4"/></svg>
+    </button>
+    <div id="ctlList">
+      <div class="rw"><span class="plate">Scroll ↕</span><span class="plate thin">Change track</span></div>
+      <div class="rw"><span class="plate">Space</span><span class="plate thin">Play / pause</span></div>
+      <div class="rw"><span class="plate">← →</span><span class="plate thin">Seek 10 s</span></div>
+      <div class="rw"><span class="plate">S</span><span class="plate thin">Shuffle</span></div>
+      <div class="rw"><span class="plate">F</span><span class="plate thin">Fullscreen</span></div>
+      <button class="rw" id="syncBtn" type="button"><span class="plate">V</span><span class="plate thin">Sync visuals to video</span></button>
+      <button class="rw" id="liveBtn" type="button"><span class="plate">L</span><span class="plate thin lab">Live input: off</span></button>
+      <div class="rw"><span class="plate">Drop</span><span class="plate thin">Load your own audio files</span></div>
+    </div>
+  </div>
 </header>
 
 <div id="cdWrap"></div>
 
 <div id="meta"><span class="plate" id="mNo">01</span><span class="plate thin" id="mAlbum"></span></div>
 <div id="read">
-  <span class="plate thin">Low <b id="rL">00</b></span><span class="plate thin">Mid <b id="rM">00</b></span><span class="plate thin">High <b id="rH">00</b></span>
+  <div id="lv" role="img" aria-label="Level meter: sub, low, mid, high, air"></div>
   <span class="plate hot" id="sec">Quiet</span><span class="plate" id="bpm">— BPM</span><span class="lamp" id="lamp"></span>
 </div>
 <div id="bar" title="Seek"><i></i></div>
@@ -130,7 +161,7 @@ const $ = s => document.querySelector(s);
 
 /* ================= setlist ================= */
 // official uploads on the band's YouTube channel (embedded, never downloaded)
-const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'rMjjsjNBS_4', '9HdqMAXQtBo', 'HKm6GkXOHCc', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
+const YT_IDS = ['MUaL1FnotRQ', 'bWXazVhlyxQ', 'kmZAsLMUuPw', '9HdqMAXQtBo', 'HKm6GkXOHCc', '0MLTwf5lKd8', 'scyC9A6o_Ts', '3L4YrGaR8E4', 'Q3dvbM6Pias', 'Rm1nCYOZB-s', 'kl4wkIPiTcY', '4KXdU3cZbNQ'];
 const QS = new URLSearchParams(location.search), HAS_TAP = !!document.documentElement.dataset.ratmTap;
 // audio tap (optional local extension in ./extension): the embed posts its own spectrum/waveform, so no tab sharing
 const tap = { f: null, t: null, at: -1e9, sr: 0 };
@@ -139,7 +170,7 @@ addEventListener('message', e => { if (!/^https:\/\/www\.youtube(-nocookie)?\.co
 const tapLive = () => performance.now() - tap.at < 400;
 // per-video picture correction: 4:3 club footage needs more zoom (no side bars) and a harder grade than the HD promos
 const VID_FX = {
-  rMjjsjNBS_4: { zoom: 1.52, filter: 'grayscale(1) brightness(1.7) contrast(1.7)' },
+  kmZAsLMUuPw: { zoom: 1.52 },
   '9HdqMAXQtBo': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   HKm6GkXOHCc: { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
   '0MLTwf5lKd8': { filter: 'grayscale(1) brightness(1.6) contrast(1.45)' },
@@ -147,7 +178,7 @@ const VID_FX = {
 const ARTIST = 'Rage Against the Machine';
 const TRACKS = [
   ['Bombtrack', 'Self-titled', 1992], ['Killing in the Name', 'Self-titled', 1992],
-  ['Take the Power Back', 'Self-titled', 1992], ['Know Your Enemy', 'Self-titled', 1992],
+  ['Bullet in the Head', 'Self-titled', 1992], ['Know Your Enemy', 'Self-titled', 1992],
   ['Calm Like a Bomb', 'The Battle of Los Angeles', 1999], ['Freedom', 'Self-titled', 1992],
   ['People of the Sun', 'Evil Empire', 1996], ['Bulls on Parade', 'Evil Empire', 1996],
   ['Testify', 'The Battle of Los Angeles', 1999], ['Guerrilla Radio', 'The Battle of Los Angeles', 1999],
@@ -468,11 +499,20 @@ float fieldV(vec2 uv, float lay){
   float win = lay>.5&&lay<1.5 ? smoothstep(.03,-.02,q.y)+exp(-max(q.y,0.)*3.2)*.5 : exp(-abs(q.y)*2.3);
   return clamp(win*(.66+1.4*uRms+.4*uLow)+fieldB(uv,lay)*.6,0.,1.);
 }
+// one instrument's slice of the spectrum, spread across the whole wave: each gets its own plate
+float fieldBand(vec2 uv, float lay, float f0, float f1){
+  vec2 q = sd(uv,lay);
+  float f = lay<.5 || lay>1.5 ? abs(q.x-.5)*2. : q.x;
+  float age = clamp(abs(q.y)/(lay>.5&&lay<1.5 ? .62 : .5),0.,1.);
+  float v = texture(uSpec, vec2(mix(f0,f1,f)*.97+.015, fract(uHead-age*.46))).r;
+  v = max(0.,v-.3)/.7; v = pow(v,2.2)*1.35*pow(1.-age,.85);
+  return clamp(v,0.,1.);
+}
 float halftone(vec2 px, float ang, float cell, float shape, float lay, int which){
   vec2 r = rot(px,ang)/cell; vec2 id = floor(r)+.5;
   if(shape>.5&&shape<1.5) id.x = r.x;                       // line screen: tone varies along the line
   vec2 f = r-id; vec2 cuv = rot(id*cell,-ang)/uRes;
-  float v = which==0 ? fieldA(cuv,lay) : which==1 ? fieldB(cuv,lay) : fieldV(cuv,lay);
+  float v = which==0 ? fieldA(cuv,lay) : which==1 ? fieldBand(cuv,lay,.2,.64)*.85 : which==2 ? fieldV(cuv,lay) : which==3 ? fieldBand(cuv,lay,0.,.2)*.72 : fieldBand(cuv,lay,.64,1.)*.7;
   float d = shape<.5 ? length(f)*1.4143 : shape<1.5 ? abs(f.y)*2. : max(abs(f.x),abs(f.y))*2.;
   if(shape<.5) v = sqrt(v);
   float aa = 1.2/cell;
@@ -489,8 +529,13 @@ vec4 scene(vec2 uv, vec3 paper, vec3 ink, vec3 hot, vec3 core, vec4 mode){
   c = mix(c, hot, a*rough*(1.-.4*uVid)*mix(.2,1.,smoothstep(.05,.6,uInt)));
   float a3 = halftone(px-mis*1.4, mode.z+2.1, cell*2.4, shape, lay, 0)*smoothstep(.62,.95,uInt);   // third plate only when the band is all in
   c = mix(c, core, a3*rough*.85*(1.-.5*uVid));
+  // colour separations: bass in the hot ink on a coarse screen, guitar/vocal mids in the key ink, cymbals in the pale ink on a fine screen
+  float bs = halftone(px+mis*1.6, mode.z+.26, cell*1.55, shape, lay, 3);
+  c = mix(c, hot, bs*rough*(1.-.5*uVid));
   float b = halftone(px, mode.z, cell, shape, lay, 1);
   c = mix(c, ink, b*rough*(1.-.55*uVid));
+  float hi = halftone(px-mis*1.2, mode.z+1.31, cell*.72, shape, lay, 4);
+  c = mix(c, core, hi*rough*(1.-.5*uVid));
   float al = 1.-uVid*halftone(px-mis*.6, mode.z+.52, cell*1.9, shape>.5&&shape<1.5 ? 0. : shape, lay, 2);   // holes through to the video
   vec2 q = sd(uv,lay); float amp = .30+.12*uShock;
   float w2 = wave(q.x*.8+.012+uShock*.03)*amp*1.18;
@@ -565,9 +610,21 @@ function frame(now) {
 const fmt = s => isFinite(s) ? `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '--:--';
 const two = v => String(Math.min(99, Math.round(v * 99))).padStart(2, '0');
 let hudN = 0; const barI = $('#bar i');
+// five-band meter with falling peak ticks
+const LV = [['S', 0, 10], ['L', 10, 28], ['M', 28, 70], ['H', 70, 100], ['A', 100, 126]].map(([n, a, b]) => ({ n, a, b, v: 0, pk: 0 }));
+$('#lv').innerHTML = LV.map(b => `<span><em><i></i><u></u></em>${b.n}</span>`).join('');
+LV.forEach((b, k) => { const sp = $('#lv').children[k]; b.i = sp.querySelector('i'); b.u = sp.querySelector('u'); });
+function meter() {
+  for (const b of LV) {
+    let sum = 0; for (let k = b.a; k < b.b; k++) sum += specRow[k];
+    const x = playing ? Math.min(1, Math.pow(sum / (b.b - b.a) / 255, 1.5) * 1.5) : 0;
+    b.v += (x - b.v) * (x > b.v ? .5 : .16); b.pk = Math.max(b.pk - .012, b.v);
+    b.i.style.transform = `scaleY(${Math.max(.03, b.v).toFixed(3)})`; b.u.style.transform = `translateY(${(-28 * b.pk).toFixed(1)}px)`;
+  }
+}
 function hud() {
+  meter();
   if (hudN++ % 4) return;
-  $('#rL').textContent = two(lev.low); $('#rM').textContent = two(lev.mid * 1.4); $('#rH').textContent = two(lev.high * 1.8);
   let txt, prog = 0;
   if (live) { txt = 'Live'; prog = 0; }
   else if (kind === 'yt') { const t = ytP?.getCurrentTime?.() || 0, d = ytP?.getDuration?.() || 0; txt = `${fmt(t)} / ${d ? fmt(d) : '--:--'}`; prog = d ? t / d : 0; }
@@ -668,8 +725,8 @@ function setPlaying(on) { playing = on; if (on) { clearTimeout(dockT); dockT = s
 // Live input: visualise whatever is playing elsewhere (a Spotify / Apple Music / YouTube tab, or the mic).
 let live = false, liveStream = null, liveNode = null;
 async function goLive() {
-  const label = $('#liveBtn span');
-  if (live) { liveStream?.getTracks().forEach(t => t.stop()); liveNode?.disconnect(); live = false; master.gain.value = 1; label.textContent = 'L — Live input: off'; load(); return; }
+  const label = $('#liveBtn .lab');
+  if (live) { liveStream?.getTracks().forEach(t => t.stop()); liveNode?.disconnect(); live = false; master.gain.value = 1; label.textContent = 'Live input: off'; load(); return; }
   if (!started) power(true);
   let stream = null;
   try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); } catch {}
@@ -679,10 +736,10 @@ async function goLive() {
   synth.stop(); el.pause(); ytPause(); clearTimeout(loadT); document.body.classList.remove('video'); if (capGain) capGain.gain.value = 0;
   liveStream = stream; liveNode = ctx.createMediaStreamSource(stream); liveNode.connect(analyser);
   master.gain.value = 0;                     // analyse only — the source app is already audible
-  live = true; usingSynth = false; setPlaying(true); $('#src').textContent = 'Live input'; label.textContent = 'L — Live input: on';
+  live = true; usingSynth = false; setPlaying(true); $('#src').textContent = 'Live input'; label.textContent = 'Live input: on';
   stream.getAudioTracks()[0].addEventListener('ended', () => { if (live) goLive(); });
 }
-$('#liveBtn').addEventListener('click', e => { e.stopPropagation(); goLive(); });
+$('#liveBtn').addEventListener('click', () => goLive());
 function toggle() {
   if (live) return;
   if (!started) return power();
@@ -718,7 +775,7 @@ addEventListener('keydown', e => {
   else if (e.key === 'l') goLive();
   else if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
-addEventListener('click', e => { if (e.target.closest('#cdWrap,#bar')) { if (!started) power(); return; } toggle(); });
+addEventListener('click', e => { if (e.target.closest('header')) return; if (e.target.closest('#cdWrap,#bar')) { if (!started) power(); return; } toggle(); });
 $('#bar').addEventListener('click', e => { const f = e.clientX / innerWidth; if (kind === 'yt') { const d = ytP?.getDuration?.(); if (d) ytP.seekTo(f * d, true); } else if (kind === 'file' && el.duration) el.currentTime = f * el.duration; });
 addEventListener('mousemove', (() => { let last = 0; return e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 40 && performance.now() - last > 400) { last = performance.now(); if (document.body.classList.contains('docked')) browse(); } }; })());
 
@@ -736,6 +793,20 @@ addEventListener('drop', e => {
   const keep = cur; buildReel(); cur = -1; go(firstNew >= 0 ? firstNew : keep, 1, true);
   if (live) return; if (!started) power(); else load();
 });
+
+/* ================= controls panel ================= */
+{
+  const btn = $('#ctl'), list = $('#ctlList');
+  const setOpen = on => {
+    btn.setAttribute('aria-expanded', on);
+    if (on) { list.classList.add('open'); if (!REDUCED) animate(list.children, { opacity: [0, 1], x: [18, 0], duration: 420, delay: stagger(28), ease: 'outExpo' }); }
+    else if (REDUCED) list.classList.remove('open');
+    else animate(list.children, { opacity: 0, x: 12, duration: 180, delay: stagger(12, { from: 'last' }), ease: 'inQuad', onComplete: () => { if (btn.getAttribute('aria-expanded') !== 'true') list.classList.remove('open'); } });
+  };
+  btn.addEventListener('click', () => setOpen(btn.getAttribute('aria-expanded') !== 'true'));
+  addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+  $('#syncBtn').addEventListener('click', () => { if (!started) power(); else ensureCap(); });
+}
 
 /* ================= boot ================= */
 try { const r = await fetch('./api/tracks'); if (r.ok) (await r.json()).forEach(f => assign(f, './tracks/' + encodeURIComponent(f))); } catch {}

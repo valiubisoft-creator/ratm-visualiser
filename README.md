@@ -33,6 +33,7 @@ A web page cannot read the sound of a cross-origin YouTube embed. The `extension
 ## How it reacts
 
 - **Kick / snare** — plates jump out of register; the image tears into slices.
+- **Instrument plates** — bass prints in the hot ink on a coarse screen, guitar and vocal mids in the key ink, cymbals in the pale ink on a fine screen, each at its own angle.
 - **Song structure** — loudness is tracked against each track's own quietest and loudest passages. Quiet passages print sparse, with an outline-only waveform. When the band comes all the way in, a third plate is added and the paper and ink swap; the label in the bottom right shows `quiet`, `build` or `full`.
 - **Title** — steps through the Redaction grades (10 → 100) as the track gets heavier, and jumps one grade rougher on every kick.
 
@@ -41,11 +42,13 @@ A web page cannot read the sound of a cross-origin YouTube embed. The `extension
 | Input | Action |
 |---|---|
 | Scroll, ↑ / ↓ | Change track |
-| Disc (right) | Drag to turn, click a segment to pick, centre to shuffle |
+| Disc (right edge) | Click to bring it out; drag to turn, click a segment to pick, centre to shuffle |
 | Space / click | Play / pause |
 | ← / → , bottom bar | Seek |
 | S | Shuffle |
 | F | Fullscreen |
+
+The same list is under the **Controls** button, top right.
 
 ## Credits
 
