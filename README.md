@@ -42,13 +42,13 @@ A web page cannot read the sound of a cross-origin YouTube embed. The `extension
 | Input | Action |
 |---|---|
 | Scroll, ↑ / ↓ | Change track |
-| Disc (right edge) | Click to bring it out; drag to turn, click a segment to pick, centre to shuffle |
+| Disc (top right) | Click to bring it out; drag to turn, click a segment to pick, centre to shuffle |
 | Space / click | Play / pause |
-| ← / → , bottom bar | Seek |
+| ← / → , timeline scrubber (footer) | Seek |
 | S | Shuffle |
 | F | Fullscreen |
 
-The same list is under the **Controls** button, top right.
+The same list is under the **Controls** button in the footer.
 
 ## Credits
 

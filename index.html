@@ -43,15 +43,14 @@
   .plate.thin { font-weight: 400; }
   .plate.hot { background: var(--hot); color: var(--paper); }
 
-  header { position: fixed; top: var(--pad); right: var(--pad); display: flex; flex-direction: column; align-items: flex-end; gap: 3px; z-index: 8; pointer-events: none; }
-  header .row { display: flex; gap: 3px; }
+  #ctlWrap { position: relative; display: flex; pointer-events: auto; }
   #ctl { all: unset; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; background: var(--ink); color: var(--paper); padding: 4px 8px 3px 7px;
          font: 500 11px/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; transition: background-color .3s, color .3s; }
   #ctl:hover, #ctl:focus-visible { background: var(--hot); }
   #ctl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: square; }
   #ctl .car { transition: transform .35s cubic-bezier(.2, .8, .2, 1); }
   #ctl[aria-expanded="true"] .car { transform: rotate(180deg); }
-  #ctlList { display: none; flex-direction: column; align-items: flex-end; gap: 3px; pointer-events: auto; }
+  #ctlList { display: none; position: absolute; right: 0; bottom: calc(100% + 3px); flex-direction: column; align-items: flex-end; gap: 3px; pointer-events: auto; }
   #ctlList.open { display: flex; }
   #ctlList .rw { display: flex; gap: 3px; }
   #ctlList button { all: unset; cursor: pointer; display: flex; gap: 3px; }
@@ -79,7 +78,7 @@
   #read .lamp { width: 22px; height: 22px; background: var(--hot); opacity: .15; }
 
   /* ---- the disc: drag to turn, click a segment to pick, centre to shuffle ---- */
-  #cdWrap { --d: var(--cd); will-change: transform; position: fixed; right: calc(var(--pad) - 8px); top: 50%; width: var(--d); height: var(--d); margin-top: calc(var(--d) / -2); z-index: 6; touch-action: none; }
+  #cdWrap { --d: var(--cd); will-change: transform; position: fixed; right: calc(var(--pad) - 8px); top: calc(var(--pad) - 8px); width: var(--d); height: var(--d); z-index: 6; touch-action: none; }
   #cd { width: 100%; height: 100%; display: block; overflow: visible; cursor: grab; }
   #cd.drag { cursor: grabbing; }
   #cdWrap.collapsed, #cdWrap.collapsed #cd, #cdWrap.collapsed .seg { cursor: pointer; }
@@ -100,9 +99,14 @@
   #cd .shuf { fill: none; stroke: var(--paper); stroke-width: 1.7; stroke-linecap: square; pointer-events: none; }
   #cd .ptr { fill: var(--hot); stroke: var(--paper); stroke-width: 1.2; }
 
-  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 18px; z-index: 6; cursor: pointer; }
-  #bar i { position: absolute; left: 0; bottom: 0; height: 5px; width: 100%; background: var(--ink); transform-origin: 0 50%; transform: scaleX(0); transition: background-color .5s; }
-  #bar:hover i { height: 10px; }
+  /* ---- timeline scrubber: sits in the gap between the title labels and the meter ---- */
+  #scrub { position: fixed; bottom: calc(var(--pad) + 14px); z-index: 6; display: flex; gap: 3px; align-items: stretch; touch-action: none; transition: opacity .3s; }
+  #scrub.off { opacity: .35; pointer-events: none; }
+  #scrub .tr { position: relative; flex: 1; min-width: 60px; background: var(--ink); cursor: pointer; transition: background-color .5s; }
+  #scrub .fill { position: absolute; inset: 0; background: var(--hot); transform-origin: 0 50%; transform: scaleX(0); transition: background-color .5s; }
+  #scrub .hd { position: absolute; top: -5px; bottom: -5px; left: 0; width: 6px; margin-left: -3px; background: var(--ink); box-shadow: 0 0 0 2px var(--paper); transition: background-color .5s, box-shadow .5s; }
+  #scrub .tr:hover .hd, #scrub.drag .hd { top: -8px; bottom: -8px; }
+  #scrub .tr:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
 
   #gate { position: fixed; left: var(--pad); bottom: 22vh; z-index: 7; pointer-events: none; }
   #gate .plate { font-size: 13px; padding: 7px 10px 6px; }
@@ -120,9 +124,13 @@
 
 <div id="wrap"><ol id="reel"></ol></div>
 
-<header>
-  <div class="row"><span class="plate hot" id="src">Standby</span><span class="plate" id="time">00:00</span></div>
-  <div id="ctlWrap" style="display:contents">
+
+
+<div id="cdWrap"></div>
+
+<div id="meta"><span class="plate" id="mNo">01</span><span class="plate thin" id="mAlbum"></span><span class="plate hot" id="src">Standby</span></div>
+<div id="read">
+  <div id="ctlWrap">
     <button id="ctl" type="button" aria-expanded="false" aria-controls="ctlList">
       <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M1 3.5h7M11 3.5h2M1 10.5h2M6 10.5h7"/><rect x="8" y="2" width="3" height="3"/><rect x="3" y="9" width="3" height="3"/></svg>
       Controls
@@ -133,16 +141,10 @@
       <div class="rw"><span class="plate">↑ ↓</span><span class="plate thin">Change track</span></div>
     </div>
   </div>
-</header>
-
-<div id="cdWrap"></div>
-
-<div id="meta"><span class="plate" id="mNo">01</span><span class="plate thin" id="mAlbum"></span></div>
-<div id="read">
   <div id="lv" role="img" aria-label="Level meter: sub, low, mid, high, air"></div>
   <span class="plate hot" id="sec">Quiet</span><span class="plate" id="bpm">— BPM</span><span class="lamp" id="lamp"></span>
 </div>
-<div id="bar" title="Seek"><i></i></div>
+<div id="scrub" class="off"><span class="plate" id="scT">00:00</span><div class="tr" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i class="fill"></i><i class="hd"></i></div><span class="plate" id="scD">--:--</span></div>
 <div id="gate"><span class="plate"><span class="sq"></span>Click to power on — and turn it up</span></div>
 <div id="drop">Drop<br>it.</div>
 <audio id="el" preload="auto"></audio>
@@ -611,7 +613,28 @@ function frame(now) {
 /* ================= HUD ================= */
 const fmt = s => isFinite(s) ? `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '--:--';
 const two = v => String(Math.min(99, Math.round(v * 99))).padStart(2, '0');
-let hudN = 0; const barI = $('#bar i');
+let hudN = 0;
+const scrub = $('#scrub'), scTr = scrub.querySelector('.tr'), scFill = scrub.querySelector('.fill'), scHd = scrub.querySelector('.hd');
+let scDrag = null, scHold = 0;                     // scHold: keep showing the target briefly after release, until the player catches up
+const mediaDur = () => kind === 'yt' ? (ytP?.getDuration?.() || 0) : kind === 'file' ? (el.duration || 0) : 0;
+function seekTo(sec) { if (kind === 'yt') ytP?.seekTo(sec, true); else if (kind === 'file') el.currentTime = sec; }
+function scrubDraw(f, cur, dur) {
+  scFill.style.transform = `scaleX(${f})`; scHd.style.left = (f * 100).toFixed(2) + '%';
+  $('#scT').textContent = fmt(cur); $('#scD').textContent = dur ? fmt(dur) : '--:--'; scTr.setAttribute('aria-valuenow', Math.round(f * 100));
+}
+function scrubPlace() {                            // fill the gap between the title labels (left) and the meter (right)
+  const a = $('#meta').getBoundingClientRect().right + 14, b = $('#read').getBoundingClientRect().left - 14, w = Math.min(520, b - a);
+  scrub.style.display = w < 170 ? 'none' : 'flex'; scrub.style.width = w + 'px'; scrub.style.left = (a + (b - a - w) / 2) + 'px';
+}
+{
+  const frac = e => { const r = scTr.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  scTr.addEventListener('pointerdown', e => { const d = mediaDur(); if (!d) return; try { scTr.setPointerCapture(e.pointerId); } catch {} scrub.classList.add('drag'); scDrag = { f: frac(e), d }; });
+  scTr.addEventListener('pointermove', e => { if (scDrag) scDrag.f = frac(e); });
+  const up = () => { if (!scDrag) return; seekTo(scDrag.f * scDrag.d); scHold = performance.now() + 700; scrub.classList.remove('drag'); scDrag = { ...scDrag, done: true }; };
+  scTr.addEventListener('pointerup', up); scTr.addEventListener('pointercancel', up);
+  scTr.addEventListener('keydown', e => { if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return; e.stopPropagation(); const d = mediaDur(); if (!d) return;
+    const c = kind === 'yt' ? ytP.getCurrentTime() : el.currentTime; seekTo(Math.min(d - 1, Math.max(0, c + (e.key === 'ArrowRight' ? 10 : -10)))); });
+}
 // five-band meter with falling peak ticks
 const LV = [['S', 0, 10], ['L', 10, 28], ['M', 28, 70], ['H', 70, 100], ['A', 100, 126]].map(([n, a, b]) => ({ n, a, b, v: 0, pk: 0 }));
 $('#lv').innerHTML = LV.map(b => `<span><em><i></i><u></u></em>${b.n}</span>`).join('');
@@ -632,7 +655,9 @@ function hud() {
   else if (kind === 'yt') { const t = ytP?.getCurrentTime?.() || 0, d = ytP?.getDuration?.() || 0; txt = `${fmt(t)} / ${d ? fmt(d) : '--:--'}`; prog = d ? t / d : 0; }
   else if (usingSynth) { const t = synth.time; txt = fmt(t); const loop = 16 * 4 * 60 / (synth.bpm || 100); prog = (t % loop) / loop; }
   else { txt = `${fmt(el.currentTime)} / ${fmt(el.duration)}`; prog = el.duration ? el.currentTime / el.duration : 0; }
-  $('#time').textContent = txt; barI.style.transform = `scaleX(${prog || 0})`;
+  const dur = live ? 0 : mediaDur(); scrub.classList.toggle('off', !dur); scrubPlace();
+  if (scDrag && (!scDrag.done || performance.now() < scHold)) scrubDraw(scDrag.f, scDrag.f * scDrag.d, scDrag.d);
+  else { scDrag = null; scrubDraw(prog || 0, dur ? (kind === 'yt' ? ytP.getCurrentTime() : el.currentTime) : usingSynth ? synth.time : 0, dur); }
 }
 
 /* ================= track switching ================= */
@@ -679,7 +704,7 @@ function go(i, dir = 1, first = false) {
   clearTimeout(loadT); if (started) loadT = setTimeout(load, first ? 0 : 320);   // debounce fast scrolling
 }
 
-const srcLabel = () => live ? 'Live input' : kind === 'synth' ? 'No file — test signal' : kind === 'file' ? 'File' : cap || HAS_TAP || tapLive() ? 'YouTube' : 'YouTube — press V to sync visuals';
+const srcLabel = () => live ? 'Live input' : kind === 'synth' ? 'No file — test signal' : kind === 'file' ? 'File' : cap || HAS_TAP || tapLive() ? 'YouTube' : 'YouTube — V to sync';
 function load() {
   if (live) return;
   const t = TRACKS[cur]; synth.stop(); el.pause(); ytPause();
@@ -777,8 +802,8 @@ addEventListener('keydown', e => {
   else if (e.key === 'l') goLive();
   else if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
-addEventListener('click', e => { if (e.target.closest('header')) return; if (e.target.closest('#cdWrap,#bar')) { if (!started) power(); return; } toggle(); });
-$('#bar').addEventListener('click', e => { const f = e.clientX / innerWidth; if (kind === 'yt') { const d = ytP?.getDuration?.(); if (d) ytP.seekTo(f * d, true); } else if (kind === 'file' && el.duration) el.currentTime = f * el.duration; });
+addEventListener('click', e => { if (e.target.closest('#ctlWrap')) return; if (e.target.closest('#cdWrap,#scrub')) { if (!started) power(); return; } toggle(); });
+
 addEventListener('mousemove', (() => { let last = 0; return e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 40 && performance.now() - last > 400) { last = performance.now(); if (document.body.classList.contains('docked')) browse(); } }; })());
 
 // drop your own files (or a whole album) anywhere
